@@ -305,6 +305,7 @@ export function PatientInfoTab({
   selectedApprovedId = "195",
   onAvailedChange,
   onApprovedChange,
+  claimType = "cataract",
 }: PatientInfoTabProps) {
   const patientValidation = displayAnalysis?.patientValidation;
   const patientInfoDb = displayAnalysis?.patientInfoDb;
