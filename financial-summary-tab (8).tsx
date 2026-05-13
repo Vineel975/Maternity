@@ -188,8 +188,9 @@ export function FinancialSummaryTab({
           if (!parentId) return;
           const parent = condById.get(parentId);
           if (!parent) return;
-          // Only Ailment Conditions group for Ailment Cappings
-          if (asT(getF(parent, ["Name"])) !== "Ailment Conditions") return;
+          // For cataract: Ailment Conditions group. For maternity: Maternity group
+          const targetParent = claimType === "maternity" ? "Maternity" : "Ailment Conditions";
+          if (asT(getF(parent, ["Name"])) !== targetParent) return;
 
           const condId = parseId(getF(row, ["ID"]));
           if (!condId) return;
@@ -224,7 +225,7 @@ export function FinancialSummaryTab({
           fetch("/api/benefit-section-summary", {
             method: "POST",
             headers: { "Content-Type": "application/json" },
-            body: JSON.stringify({ section: "ailment", rawText: allCaps.join("\n") }),
+            body: JSON.stringify({ section: claimType === "maternity" ? "maternity" : "ailment", rawText: allCaps.join("\n") }),
           }).then(r => r.json()).then((d: { summary?: string }) => {
             if (!cancelled && d.summary) setAilmentSummary(d.summary);
           }).catch(() => {});
