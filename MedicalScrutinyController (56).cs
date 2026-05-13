@@ -8239,7 +8239,7 @@ namespace Enrollment.Controllers
             string claimId, string slNo = "1",
             string providerID = "0", string policyID = "0", string memberPolicyID = "0",
             string issueID = "0", string corpID = "0", string payerID = "0",
-            string brokerID = "0", string siTypeID = "0")
+            string brokerID = "0", string siTypeID = "0", string claimType = "cataract")
         {
             try
             {
@@ -8271,7 +8271,9 @@ namespace Enrollment.Controllers
                     int  brokId   = int.TryParse(brokerID,       out int  _b)   ? _b   : 0;
                     int  siTypId  = int.TryParse(siTypeID,       out int  _s)   ? _s   : 0;
                     int  slNoInt  = int.TryParse(slNo,           out int  _sl)  ? _sl  : 1;
-                    byte isPED = 0, isGIPSA = 0, isDayCare = 1, isCI = 0;
+                    byte isPED = 0, isGIPSA = 0, isCI = 0;
+                    // Maternity = inpatient (isDayCare=0). Cataract = daycare (isDayCare=1)
+                    byte isDayCare = (claimType == "maternity") ? (byte)0 : (byte)1;
                     int  procedureID = 0, level1 = 0;
 
                     // Get procedure ID from ClaimsCoding (most recent entry)
