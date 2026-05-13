@@ -1,4 +1,4 @@
-﻿using System;
+using System;
 using System.Collections.Generic;
 using System.Linq;
 using System.Web;
@@ -7999,56 +7999,59 @@ namespace Enrollment.Controllers
                     conn.Open();
 
                     // Get claimdiagnosis (PropertyID=87 value) and ICD code from claimsdetails
-                    int    diagnosisId  = 0;
-                    string icdCode      = "";
-                    string icdName      = "";
-
-                    using (var cmd = new System.Data.SqlClient.SqlCommand(@"
-                        SELECT TOP 1
-                            cd.claimdiagnosis,
-                            icd.DiseaseCode,
-                            icd.Name AS DiseaseName
-                        FROM Claimsdetails cd WITH(NOLOCK)
-                        LEFT JOIN ICD10 icd WITH(NOLOCK) ON icd.ID = cd.claimdiagnosis
-                        WHERE cd.ClaimID = @ClaimID
-                        AND ISNULL(cd.Deleted, 0) = 0
-                        ORDER BY cd.SlNo DESC", conn))
+                    // Read Diagnosis text column directly from ClaimsDetails
+                    string diagnosisText = "";
+                    using (var diagCmd = new System.Data.SqlClient.SqlCommand(
+                        "SELECT TOP 1 Diagnosis FROM Claimsdetails WITH(NOLOCK) WHERE ClaimID=@ClaimID AND ISNULL(Deleted,0)=0 ORDER BY SlNo DESC", conn))
                     {
-                        cmd.Parameters.AddWithValue("@ClaimID", claimIdLong);
-                        using (var rdr = cmd.ExecuteReader())
+                        diagCmd.Parameters.AddWithValue("@ClaimID", claimIdLong);
+                        var diagVal = diagCmd.ExecuteScalar();
+                        diagnosisText = diagVal != null && diagVal != DBNull.Value ? diagVal.ToString().Trim() : "";
+                    }
+
+                    // Log diagnosis text
+                    try {
+                        string logDir = System.Web.Hosting.HostingEnvironment.MapPath("~/App_Data/Logs");
+                        if (!System.IO.Directory.Exists(logDir)) System.IO.Directory.CreateDirectory(logDir);
+                        System.IO.File.AppendAllText(System.IO.Path.Combine(logDir, "ClaimType_" + DateTime.Now.ToString("yyyyMMdd") + ".log"),
+                            DateTime.Now.ToString("HH:mm:ss") + $" claimId={claimIdLong} diagnosis={diagnosisText}
+");
+                    } catch { }
+
+                    if (string.IsNullOrWhiteSpace(diagnosisText))
+                        return Json(new { success = true, claimType = "other", diagnosis = diagnosisText }, JsonRequestBehavior.AllowGet);
+
+                    // Call ClaimAI to classify the diagnosis text
+                    string claimType = "other";
+                    try
+                    {
+                        string claimAiUrl = (System.Configuration.ConfigurationManager.AppSettings["claimAIUrl"] ?? "").TrimEnd('/');
+                        if (!string.IsNullOrEmpty(claimAiUrl))
                         {
-                            if (rdr.Read())
+                            using (var http = new System.Net.Http.HttpClient())
                             {
-                                diagnosisId = rdr["claimdiagnosis"] != DBNull.Value ? Convert.ToInt32(rdr["claimdiagnosis"]) : 0;
-                                icdCode     = rdr["DiseaseCode"]    != DBNull.Value ? rdr["DiseaseCode"].ToString().Trim()   : "";
-                                icdName     = rdr["DiseaseName"]    != DBNull.Value ? rdr["DiseaseName"].ToString().Trim()   : "";
+                                http.Timeout = TimeSpan.FromSeconds(10);
+                                var payload = Newtonsoft.Json.JsonConvert.SerializeObject(new { diagnosis = diagnosisText });
+                                var body    = new System.Net.Http.StringContent(payload, System.Text.Encoding.UTF8, "application/json");
+                                var res     = http.PostAsync(claimAiUrl + "/api/classify-claim-type", body).GetAwaiter().GetResult();
+                                if (res.IsSuccessStatusCode)
+                                {
+                                    var json    = res.Content.ReadAsStringAsync().GetAwaiter().GetResult();
+                                    dynamic result = Newtonsoft.Json.JsonConvert.DeserializeObject(json);
+                                    claimType = result?.claimType?.ToString() ?? "other";
+                                }
                             }
                         }
                     }
-
-                    // Determine claim type from ICD code prefix
-                    string claimType = "other";
-                    string icdPrefix = icdCode.Length >= 1 ? icdCode.Substring(0, 1).ToUpper() : "";
-                    string icdPrefix3 = icdCode.Length >= 3 ? icdCode.Substring(0, 3).ToUpper() : "";
-
-                    // Cataract: H25.* H26.* (Age-related and other cataracts)
-                    if (icdPrefix3 == "H25" || icdPrefix3 == "H26")
-                        claimType = "cataract";
-                    // Maternity: O00-O99 (Pregnancy, childbirth and puerperium)
-                    else if (icdPrefix == "O")
-                        claimType = "maternity";
-                    // Fallback: use Mst_PropoertyValues ID (466=cataract, 469=maternity)
-                    else if (diagnosisId == 466)
-                        claimType = "cataract";
-                    else if (diagnosisId == 469)
-                        claimType = "maternity";
+                    catch (Exception aiEx)
+                    {
+                        System.Diagnostics.Debug.WriteLine("[ClaimType] AI call failed: " + aiEx.Message);
+                    }
 
                     return Json(new {
-                        success     = true,
-                        claimType   = claimType,
-                        diagnosisId = diagnosisId,
-                        icdCode     = icdCode,
-                        icdName     = icdName
+                        success   = true,
+                        claimType = claimType,
+                        diagnosis = diagnosisText
                     }, JsonRequestBehavior.AllowGet);
                 }
             }
