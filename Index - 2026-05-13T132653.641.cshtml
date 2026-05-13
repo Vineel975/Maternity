@@ -7121,6 +7121,28 @@
 
 
 
+            // Detect claim type BEFORE InitAiSummary — synchronous call
+            window._claimAI_claimType = 'other';
+            window._claimAI_diagnosis = '';
+            if (_claimIdOnLoad) {
+                $.ajax({
+                    url:   '/MedicalScrutiny/GetClaimType',
+                    type:  'GET',
+                    data:  { claimId: _claimIdOnLoad },
+                    async: false,
+                    success: function(res) {
+                        if (res.success) {
+                            window._claimAI_claimType = res.claimType;
+                            window._claimAI_diagnosis = res.diagnosis;
+                            console.log('[ClaimAI] Claim type from Diagnosis: "' + res.diagnosis + '" → ' + res.claimType.toUpperCase());
+                        }
+                    },
+                    error: function() {
+                        console.log('[ClaimAI] GetClaimType failed — defaulting to other');
+                    }
+                });
+            }
+
             if (!RestoreAiSummaryIfSaved(_claimIdOnLoad)) {
                 InitAiSummary(_claimIdOnLoad, $('#hdnClaimSlNo').val());
             }
@@ -7458,30 +7480,9 @@
 
             // claimType from Mst_PropoertyValues PropertyID=87
             // 466 = Cataract, 469 = Maternity
-            // Fetch claim type from server using ICD code
-            spectraFields.claimType = 'other'; // default until API responds
-            (function() {
-                var _cid = $('#hdnClaimID').val();
-                if (!_cid) return;
-                $.ajax({
-                    url:   '/MedicalScrutiny/GetClaimType',
-                    type:  'GET',
-                    data:  { claimId: _cid },
-                    async: false, // sync so claimType is set before spectraFields is used
-                    success: function(res) {
-                        if (res.success) {
-                            window._claimAI_claimType = res.claimType;  // store globally
-                            window._claimAI_diagnosis = res.diagnosis;
-                            spectraFields.claimType   = res.claimType;
-                            spectraFields.diagnosis   = res.diagnosis;
-                            console.log('[ClaimAI] Claim type from Diagnosis:', '"' + res.diagnosis + '"', '→', res.claimType.toUpperCase());
-                        }
-                    },
-                    error: function() {
-                        console.log('[ClaimAI] GetClaimType failed — defaulting to other');
-                    }
-                });
-            })();
+            // Use claim type already fetched at document ready
+            spectraFields.claimType = window._claimAI_claimType || 'other';
+            spectraFields.diagnosis = window._claimAI_diagnosis || '';
 
             // Doctor Notes — _claimAI_doctorNotes stores the value independently of DOM
             // txtDoctorRemarks only exists in DOM after Notes tab is opened
