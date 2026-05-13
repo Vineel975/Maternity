@@ -2025,52 +2025,52 @@ export function PatientInfoTab({
           </div>
         </div>
 
-        {/* Investigation Report Section */}
+        {/* Supporting Documents Section — branches on claimType */}
         {(() => {
           const conditionTests = (
             displayAnalysis?.medicalAdmissibility as
-              | { conditionTests?: Array<{ testName: string; status: string }> }
+              | { conditionTests?: Array<{ testName: string; status: string; reportValue?: string; numericValue?: number | null }> }
               | null
               | undefined
           )?.conditionTests;
 
           if (!conditionTests?.length) return null;
 
-          const missingTests = conditionTests.filter(
-            (t) => t.status === "missing",
-          );
-
-          if (!missingTests.length) return null;
+          const isMaternity = claimType === "maternity";
+          const missingTests = conditionTests.filter((t) => t.status === "missing");
+          const foundTests   = conditionTests.filter((t) => t.status === "expected" || t.status === "found");
 
           return (
-            <div className="mt-6">
-              <Label className="mb-3 block text-sm font-medium text-muted-foreground">
-                Investigation Report
+            <div className="mt-6 space-y-3">
+              <Label className="mb-1 block text-sm font-medium text-muted-foreground">
+                {isMaternity ? "Supporting Documents" : "Investigation Report"}
               </Label>
-              <div className="space-y-2">
-                {missingTests.map((t, i) => (
-                  <div
-                    key={i}
-                    className="flex items-start gap-2 rounded-md border border-red-200 bg-red-50 px-3 py-2.5 text-xs text-red-700 dark:border-red-800 dark:bg-red-950 dark:text-red-300"
-                  >
-                    <svg
-                      className="mt-0.5 h-3.5 w-3.5 shrink-0"
-                      fill="currentColor"
-                      viewBox="0 0 20 20"
-                    >
-                      <path
-                        fillRule="evenodd"
-                        d="M8.485 2.495c.673-1.167 2.357-1.167 3.03 0l6.28 10.875c.673 1.167-.17 2.625-1.516 2.625H3.72c-1.347 0-2.189-1.458-1.515-2.625L8.485 2.495zM10 5a.75.75 0 01.75.75v3.5a.75.75 0 01-1.5 0v-3.5A.75.75 0 0110 5zm0 9a1 1 0 100-2 1 1 0 000 2z"
-                        clipRule="evenodd"
-                      />
-                    </svg>
-                    <span>
-                      <span className="font-medium">{t.testName}</span> is
-                      missing in the provided medical document.
-                    </span>
-                  </div>
-                ))}
-              </div>
+
+              {/* Maternity: show found documents (GPLA, delivery type etc.) */}
+              {isMaternity && foundTests.map((t, i) => (
+                <div key={i} className="flex items-start gap-2 rounded-md border border-green-200 bg-green-50 px-3 py-2.5 text-xs text-green-800 dark:border-green-800 dark:bg-green-950 dark:text-green-300">
+                  <span className="font-medium">{t.testName}:</span>
+                  <span>{t.reportValue ?? "Found"}</span>
+                  {t.numericValue !== null && t.numericValue !== undefined && (
+                    <span className="ml-1 text-green-600">(L={t.numericValue} living children)</span>
+                  )}
+                </div>
+              ))}
+
+              {/* Missing documents — same for both claim types */}
+              {missingTests.map((t, i) => (
+                <div key={i} className="flex items-start gap-2 rounded-md border border-red-200 bg-red-50 px-3 py-2.5 text-xs text-red-700 dark:border-red-800 dark:bg-red-950 dark:text-red-300">
+                  <svg className="mt-0.5 h-3.5 w-3.5 shrink-0" fill="currentColor" viewBox="0 0 20 20">
+                    <path fillRule="evenodd" d="M8.485 2.495c.673-1.167 2.357-1.167 3.03 0l6.28 10.875c.673 1.167-.17 2.625-1.516 2.625H3.72c-1.347 0-2.189-1.458-1.515-2.625L8.485 2.495zM10 5a.75.75 0 01.75.75v3.5a.75.75 0 01-1.5 0v-3.5A.75.75 0 0110 5zm0 9a1 1 0 100-2 1 1 0 000 2z" clipRule="evenodd"/>
+                  </svg>
+                  <span>
+                    <span className="font-medium">{t.testName}</span>
+                    {isMaternity
+                      ? " not found in documents — required for eligibility check."
+                      : " is missing in the provided medical document."}
+                  </span>
+                </div>
+              ))}
             </div>
           );
         })()}
