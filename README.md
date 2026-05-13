@@ -1,3 +1,27 @@
+SPECTRA_BASE_URL = https://spectra-app-qa-v9.fhpl.net
+
+STAGING_API_KEY = claimai-staging-key-2025
+
+NEXT_PUBLIC_APP_URL = https://claims-helixview-uat.fhpl.net
+
+
+ID	Level1	Level2	Level3
+402	Obstetrics and Gynecology	Normal Delivery	Normal Delivery
+403	Obstetrics and Gynecology	Normal Delivery	Normal Delivery
+404	Obstetrics and Gynecology	Normal Delivery	Normal Vaginal Delivery with Epidural Anesthesia
+405	Obstetrics and Gynecology	Normal Delivery	Normal Vaginal Delivery in Twins(Multiple pregnency)
+418	Obstetrics and Gynecology	Caesarean section	Caesarean section
+419	Obstetrics and Gynecology	Caesarean section	Caesarean Delivery with well baby care
+420	Obstetrics and Gynecology	Caesarean section	Caesarean Delivery twins with well baby care
+421	Obstetrics and Gynecology	Caesarean section	Caesarean Hysterectomy with bladder repair
+422	Obstetrics and Gynecology	Caesarean section	Complicated LSCS
+1331	Obstetrics and Gynecology	Normal Delivery	Normal delivery with well baby care(single) twins Rs.10000/- extra
+1332	Obstetrics and Gynecology	Caesarean Section	LSCS with well baby care(single),Rs.10000/- extra for twins
+1340	Obstetrics and Gynecology	Normal Delivery	Epidural delivery with well baby care(single/twins Rs.10000/- extra)
+
+
+
+
 <img width="951" height="291" alt="image" src="https://github.com/user-attachments/assets/8dd931a4-0b3b-4cd1-a7ae-0efe20273076" />
 
 
