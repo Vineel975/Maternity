@@ -7242,6 +7242,14 @@
         function _doInitAiSummary(claimID, slNo) {
             console.log('[ClaimAI] STEP 1 START: InitAiSummary. claimID:', claimID, 'slNo:', slNo, 'ClaimAI URL:', _claimAiUrl);
 
+            // Check claim type — only proceed for cataract and maternity
+            var _claimType = window._claimAI_claimType || 'other';
+            console.log('[ClaimAI] claimType check for AI summary:', _claimType);
+            if (_claimType !== 'cataract' && _claimType !== 'maternity') {
+                showAiError('AI Summary is currently available only for Cataract and Maternity claims. This claim (' + _claimType + ') is not supported yet.');
+                return;
+            }
+
             // Fire webhook to pre-process claim (fire & forget)
             claimAI_fireWebhook(claimID, slNo);
 
@@ -7462,8 +7470,10 @@
                     async: false, // sync so claimType is set before spectraFields is used
                     success: function(res) {
                         if (res.success) {
-                            spectraFields.claimType = res.claimType;
-                            spectraFields.diagnosis = res.diagnosis;
+                            window._claimAI_claimType = res.claimType;  // store globally
+                            window._claimAI_diagnosis = res.diagnosis;
+                            spectraFields.claimType   = res.claimType;
+                            spectraFields.diagnosis   = res.diagnosis;
                             console.log('[ClaimAI] Claim type from Diagnosis:', '"' + res.diagnosis + '"', '→', res.claimType.toUpperCase());
                         }
                     },
