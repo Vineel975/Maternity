@@ -1,4 +1,4 @@
-﻿@{
+@{
     ViewBag.TitleDepartment = "Claims";
     ViewBag.Title = "Claim";
     Layout = "~/Views/Shared/_Layout.cshtml";
@@ -7450,14 +7450,30 @@
 
             // claimType from Mst_PropoertyValues PropertyID=87
             // 466 = Cataract, 469 = Maternity
-            var _claimDiagnosis = (typeof basicData !== 'undefined' && basicData[0])
-                ? parseInt(basicData[0].claimdiagnosis || '0')
-                : 0;
-            spectraFields.claimDiagnosisId = _claimDiagnosis;
-            spectraFields.claimType        = (_claimDiagnosis === 469) ? 'maternity'
-                                           : (_claimDiagnosis === 466) ? 'cataract'
-                                           : 'other';
-            console.log('[ClaimAI] claimDiagnosisId=', _claimDiagnosis, 'claimType=', spectraFields.claimType);
+            // Fetch claim type from server using ICD code
+            spectraFields.claimType = 'other'; // default until API responds
+            (function() {
+                var _cid = $('#hdnClaimID').val();
+                if (!_cid) return;
+                $.ajax({
+                    url:   '/MedicalScrutiny/GetClaimType',
+                    type:  'GET',
+                    data:  { claimId: _cid },
+                    async: false, // sync so claimType is set before spectraFields is used
+                    success: function(res) {
+                        if (res.success) {
+                            spectraFields.claimType    = res.claimType;
+                            spectraFields.claimDiagnosisId = res.diagnosisId;
+                            spectraFields.icdCode      = res.icdCode;
+                            spectraFields.icdName      = res.icdName;
+                            console.log('[ClaimAI] Claim type from ICD:', res.icdCode, res.icdName, '→', res.claimType.toUpperCase());
+                        }
+                    },
+                    error: function() {
+                        console.log('[ClaimAI] GetClaimType failed — defaulting to other');
+                    }
+                });
+            })();
 
             // Doctor Notes — _claimAI_doctorNotes stores the value independently of DOM
             // txtDoctorRemarks only exists in DOM after Notes tab is opened
