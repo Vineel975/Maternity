@@ -9219,7 +9219,7 @@
                 // Bill Details automation from ClaimAI
                 if (event.data.type === 'getCodingProcedureLimit') {
                     var _claimIdForLimit = event.data.claimId || $('#hdnClaimID').val();
-                    console.log('[ClaimAI] getCodingProcedureLimit received, claimId=', _claimIdForLimit);
+                    console.log('[ClaimAI] getCodingProcedureLimit received, claimId=', _claimIdForLimit, 'claimType=', window._claimAI_claimType);
                     $.ajax({
                         url: '/MedicalScrutiny/GetCodingProcedureEligibleLimit',
                         type: 'GET',
@@ -9233,7 +9233,8 @@
                             corpID:         $('#hdnCorporateID').val() || '0',
                             payerID:        $('#hdnPayerID').val() || '0',
                             brokerID:       $('#hdnBrokerID').val() || '0',
-                            siTypeID:       $('#hdnSITypeID').val() || '0'
+                            siTypeID:       $('#hdnSITypeID').val() || '0',
+                            claimType:      window._claimAI_claimType || 'cataract'
                         },
                         success: function(res) {
                             console.log('[ClaimAI] GetCodingProcedureEligibleLimit:', res);
@@ -9378,13 +9379,15 @@
                         sessionStorage.setItem('claimAI_jobId', savedJobId);
                         sessionStorage.setItem('claimAI_claimId', $('#hdnClaimID').val());
                     }
-                    // Step 0: For cataract claims, mark that Day-care needs to be set
-                    var _isCataract = (typeof basicData !== 'undefined' && basicData[0] &&
-                                       (basicData[0].claimdiagnosis == 466 ||
-                                        (basicData[0].diagnosisName || '').toLowerCase().indexOf('cataract') !== -1));
+                    // Step 0: Set approved accommodation based on claim type
+                    var _isCataract = window._claimAI_claimType === 'cataract';
+                    var _isMaternity = window._claimAI_claimType === 'maternity';
                     if (_isCataract) {
                         window._claimAI_needsDayCare = true;
-                        console.log('[ClaimAI] Cataract case detected — will set Day-care in Step 1');
+                        console.log('[ClaimAI] Cataract — will set Day-care (ID=195)');
+                    } else if (_isMaternity) {
+                        window._claimAI_needsDayCare = false;
+                        console.log('[ClaimAI] Maternity — no default accommodation, will use BP IDs 41/42/43');
                     }
 
                     // Step 1 (1s): Ensure Room/ICU days non-zero, click Save Hospitalization Details
