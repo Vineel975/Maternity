@@ -7462,11 +7462,9 @@
                     async: false, // sync so claimType is set before spectraFields is used
                     success: function(res) {
                         if (res.success) {
-                            spectraFields.claimType    = res.claimType;
-                            spectraFields.claimDiagnosisId = res.diagnosisId;
-                            spectraFields.icdCode      = res.icdCode;
-                            spectraFields.icdName      = res.icdName;
-                            console.log('[ClaimAI] Claim type from ICD:', res.icdCode, res.icdName, '→', res.claimType.toUpperCase());
+                            spectraFields.claimType = res.claimType;
+                            spectraFields.diagnosis = res.diagnosis;
+                            console.log('[ClaimAI] Claim type from Diagnosis:', '"' + res.diagnosis + '"', '→', res.claimType.toUpperCase());
                         }
                     },
                     error: function() {
