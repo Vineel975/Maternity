@@ -81,6 +81,7 @@ export function FinancialSummaryTab({
   onAmountsChange,
   onBenefitExtractionClick,
   diagnosis,
+  claimType = "cataract",
 }: FinancialSummaryTabProps) {
 
   // ── BSI state — fetched client-side via /api/bsi (runs on localhost:3000) ──
