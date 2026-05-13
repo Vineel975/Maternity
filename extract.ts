@@ -44,6 +44,7 @@ interface ProcessPdfOptions {
   providers: any;
   baseDocument?: PdfDocument;
   medicalAdmissibility?: MedicalAdmissibilityItem | null;
+  claimType?: "cataract" | "maternity" | "other";
 }
 
 
@@ -254,6 +255,7 @@ async function processPdfWithAI({
   providers,
   baseDocument: providedBaseDocument,
   medicalAdmissibility: providedMedicalAdmissibility,
+  claimType = "cataract",
     }: ProcessPdfOptions): Promise<{
   analysis: PdfAnalysis;
   cost: number;
@@ -429,6 +431,7 @@ export async function processSinglePdf({
       providers,
       baseDocument: undefined,
       medicalAdmissibility: undefined,
+      claimType,
     });
 
     const initialProcessingTimeMs = Date.now() - fileStartTime;
