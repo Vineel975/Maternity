@@ -1,4 +1,62 @@
-export const medicalAdmissibilityExtractionPrompt = (claimType: "cataract" | "maternity" | "other" = "cataract"): string => `Extract medical admissibility information from this document. Look for:
+export const medicalAdmissibilityExtractionPrompt = (claimType: "cataract" | "maternity" | "other" = "cataract"): string => {
+  const conditionTestsSection = claimType === "maternity"
+    ? `- conditionTests: Look for these maternity supporting documents:
+  - Ultrasound report: gestational age, presentation (cephalic/breech), GPLA notation (e.g. G2P1L1A0)
+  - Inpatient Initial Assessment form: L value (living children) — CRITICAL for eligibility
+  - Discharge summary: delivery type (Normal/C-Section/Twins), complications
+  For each document found, create one entry:
+    - condition: e.g. "Ultrasound Report", "Inpatient Assessment", "Discharge Summary"
+    - matchedDiagnosis: e.g. "maternity", "normal delivery", "LSCS"
+    - pageNumber: PDF page (1-based) where document found
+    - testName: "GPLA" for ultrasound/assessment, "Delivery Type" for discharge summary
+    - reportValue: extracted value e.g. "G2P1L1A0", "Normal Delivery", "C-Section"
+    - numericValue: the L value as number if found (e.g. 1), else null
+    - unit: "living children" if L value, else ""
+    - status: "expected" if found, "missing" if not found
+    - sourceText: short snippet from PDF confirming finding`
+    : `- conditionTests: ONLY for Cataract diagnosis. Look for A-scan report data:
+  - Axial Length (Axl.) measurements for both eyes (RE and LE)
+  - K1 and K2 (corneal curvature) measurements
+  - Anisometropia (Anis.) measurements
+  - Sections labeled "Ascan", "A-scan", "Axial Length", or similar
+  For Cataract (single entry):
+    - condition: "Cataract (A-scan)"
+    - matchedDiagnosis: exact diagnosis text (e.g. "cataract")
+    - pageNumber: PDF page (1-based) where A-scan found
+    - testName: "A-scan"
+    - reportValue: "Yes" if found, "No" if not found
+    - numericValue: null
+    - unit: ""
+    - status: "expected" if found, "missing" if not found
+    - sourceText: short snippet from PDF`;
+
+  return `Extract medical admissibility information from this document. Look for:
+- Medical diagnosis or condition statements
+- Doctor's notes, clinical observations, or medical findings
+- Medical admissibility check reports
+- Clinical assessment sections
+- Physician notes or remarks
+
+Extract the following information as a SINGLE object:
+- diagnosis: ALL medical diagnoses or conditions identified in the document, combined together as a comma-separated list. This includes specific diseases, conditions, medical findings, or nature of illness mentioned in the admissibility report. Look for sections labeled "Diagnosis", "Condition", "Medical Finding", "Nature of Illness", or similar terms. If multiple diagnoses are present, combine them all into a single string separated by commas.
+- lineOfTreatment: The line of treatment or surgical/medical procedure that was performed or planned. This is WHAT WAS DONE (the procedure), NOT the diagnosis (the condition). Look for sections labeled "Line of Treatment", "Procedure", "Operation", "Surgery", "Treatment", "Management", "Operative Notes", or similar. Examples: "Phacoemulsification with Foldable IOL Implantation", "Normal Delivery", "LSCS". If multiple procedures, combine as comma-separated. Return null if not found.
+- icdCode1: The MOST SPECIFIC ICD-10-CM code for the primary diagnosis. Always go as specific as possible. ALWAYS return a value — never return null.
+- icdCode2: ICD-10 code for secondary diagnosis or comorbidity if explicitly mentioned. Return null if truly only one diagnosis.
+- icdCode3: ICD-10 code for a third condition or significant finding if present. Return null if not applicable.
+- presentingComplaint: A brief 1-2 sentence clinical summary of the patient's condition. Always return a value.
+- doctorNotes: Clinical notes, observations, or remarks written by the doctor. DO NOT include formal diagnosis statements or structured lab values. Combine all notes into a single string separated by double newlines. If none found, leave empty.
+- doctorNotesPageNumber: The PDF page index (1-based) where the doctor's notes appear.
+${conditionTestsSection}
+
+IMPORTANT:
+- Extract ALL diagnoses and combine as comma-separated string
+- Extract lineOfTreatment separately — it is the procedure performed, not the condition
+- Be comprehensive in extracting all diagnoses and doctor notes
+- Return schema fields only; no explanations outside requested values
+- Return a SINGLE object with all diagnoses and notes combined`;
+};
+
+"cataract" | "maternity" | "other" = "cataract"): string => `Extract medical admissibility information from this document. Look for:
 - Medical diagnosis or condition statements
 - Doctor's notes, clinical observations, or medical findings
 - Medical admissibility check reports
@@ -351,19 +409,18 @@ BENEFIT PLAN LIMIT: ${benefitPlanLimit ?? "Not available"}
 
 YOUR TASK:
 1. Determine if the current claim is SIMILAR to the previous claim.
-${claimType === "maternity" ? `
-   MATERNITY SIMILARITY RULES:
+${claimType === "maternity"
+  ? `   MATERNITY SIMILARITY RULES:
    - Normal delivery and Normal delivery = SIMILAR
    - C-Section and C-Section = SIMILAR
    - Normal delivery and C-Section = NOT SIMILAR (different delivery type, different limit applies)
    - Twins delivery = treat separately (may have surcharge)
-   - Same episode of care / same pregnancy = NOT a separate claim
-` : `
-   CATARACT SIMILARITY RULES:
+   - Same episode of care / same pregnancy = NOT a separate claim`
+  : `   CATARACT SIMILARITY RULES:
    - Left eye cataract and right eye cataract = SIMILAR (contralateral)
    - Same eye operated twice = review carefully
-   - Different conditions or procedures = NOT SIMILAR
-`}
+   - Different conditions or procedures = NOT SIMILAR`
+}
 
 2. If SIMILAR and the previous claim has an approved amount:
    - Check if the benefit plan limit covers the previously approved amount.
