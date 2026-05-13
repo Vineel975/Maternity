@@ -1,0 +1,481 @@
+export const medicalAdmissibilityExtractionPrompt = (claimType: "cataract" | "maternity" | "other" = "cataract"): string => `Extract medical admissibility information from this document. Look for:
+- Medical diagnosis or condition statements
+- Doctor's notes, clinical observations, or medical findings
+- Medical admissibility check reports
+- Clinical assessment sections
+- Physician notes or remarks
+
+Extract the following information as a SINGLE object:
+- diagnosis: ALL medical diagnoses or conditions identified in the document, combined together as a comma-separated list. This includes specific diseases, conditions, medical findings, or nature of illness mentioned in the admissibility report. Look for sections labeled "Diagnosis", "Condition", "Medical Finding", "Nature of Illness", or similar terms. If multiple diagnoses are present, combine them all into a single string separated by commas.
+- lineOfTreatment: The line of treatment or surgical/medical procedure that was performed or planned. This is WHAT WAS DONE (the procedure), NOT the diagnosis (the condition). Look for sections labeled "Line of Treatment", "Procedure", "Operation", "Surgery", "Treatment", "Management", "Operative Notes", or similar. Examples: "Phacoemulsification with Foldable IOL Implantation", "Laparoscopic Cholecystectomy", "Conservative Management with IV Antibiotics", "PTCA with Stenting". If multiple procedures, combine as comma-separated. Return null if not found.
+- icdCode1: The MOST SPECIFIC ICD-10-CM code for the primary diagnosis. This is the single most important field — extract directly from the document if printed, otherwise derive from the diagnosis text. Always go as specific as possible: include eye laterality (right/left/bilateral), type, and sub-type. Examples: "Nuclear cataract right eye" → "H25.11", "Nuclear cataract left eye" → "H25.12", "Appendicitis with abscess" → "K35.2", "Acute cholecystitis" → "K81.0", "Type 2 diabetes with diabetic cataract" → "E11.36". ALWAYS return a value — never return null. The system will automatically derive all 7 hierarchy levels (L1 broad category → L7 most specific) from this single code, so accuracy here is critical.
+- icdCode2: ICD-10 code for the secondary diagnosis or comorbidity if one is explicitly mentioned in the document (e.g. hypertension co-existing with cataract → "I10"). Return null if there is truly only one diagnosis.
+- icdCode3: ICD-10 code for a third condition or significant finding if present. Return null if not applicable.
+- presentingComplaint: A brief 1-2 sentence clinical summary of the patient's condition based on all information available in the document — diagnosis, symptoms, doctor notes, and clinical findings. This should read like a doctor's summary of why the patient was admitted. Example: "Patient presents with left eye cataract with diminution of vision for 1 month, admitted for cataract surgery with monofocal IOL implantation." Always return a value — synthesize from the document even if no explicit complaint section exists.
+- doctorNotes: Clinical notes, observations, or remarks written by the doctor — this includes both handwritten and printed doctor notes. Look for sections labeled "Doctor's Notes", "Clinical Notes", "Physician Remarks", "Observations", "Remarks", "Comments", "History", "Chief Complaints", "Clinical Summary", "Discharge Summary Notes", or similar. Include free-form clinical notes, observations, treatment remarks, and physician comments. DO NOT include the formal diagnosis (e.g. "Diagnosis: Cataract") or structured lab values — those belong in the diagnosis field. Combine all notes into a single string separated by double newlines (\\n\\n). If no doctor notes or clinical remarks are found anywhere in the document, leave this field empty.
+- doctorNotesPageNumber: The PDF page index (1-based) where the doctor's notes appear. ⚠️ CRITICAL PAGE NUMBER INSTRUCTIONS ⚠️:
+  * You must count pages from the BEGINNING of the PDF document (page 1 = first page, page 2 = second page, etc.)
+  * DO NOT use any page numbers printed on the document pages - these may be different from the actual PDF page index
+  * Find the page that contains the doctor's notes (look for sections labeled "Doctor's Notes", "Clinical Notes", "Remarks", "Observations", or similar)
+  * The pageNumber is the physical PDF page where the doctor's notes appear
+  * Scan through the PDF systematically from page 1 onwards until you find the doctor's notes
+  * Record the number of the page where the doctor's notes are located (e.g., if the doctor's notes appear on what is physically page 3 of the PDF, doctorNotesPageNumber = 3)
+  * If doctor's notes are not found or span multiple pages, use the first page where they appear
+- conditionTests: Supporting documents specific to claim type.
+${claimType === "maternity" ? `
+MATERNITY — Look for these supporting documents:
+- Ultrasound report: Look for gestational age, presentation (cephalic/breech), GPLA notation (e.g. G2P1L1A0)
+- Inpatient Initial Assessment form: Contains L value (living children) — CRITICAL for eligibility
+- Discharge summary: Confirms delivery type (Normal/C-Section/Twins), complications
+- Operation notes: For C-Section cases, procedure details
+
+For each document found, create one entry in conditionTests:
+- condition: Document type e.g. "Ultrasound Report", "Inpatient Assessment", "Discharge Summary"
+- matchedDiagnosis: e.g. "maternity", "normal delivery", "LSCS"
+- pageNumber: PDF page (1-based) where document found
+- testName: "GPLA" for ultrasound/assessment, "Delivery Type" for discharge summary
+- reportValue: extracted value e.g. "G2P1L1A0", "Normal Delivery", "C-Section"
+- numericValue: the L value as number if found (e.g. 1), else null
+- unit: "living children" if L value, else ""
+- status: "expected" if found, "missing" if not found
+- sourceText: short snippet from PDF confirming finding
+` : `
+CATARACT — Look for A-scan report data:
+- Axial Length (Axl.) measurements for both eyes (RE and LE)
+- K1 and K2 (corneal curvature) measurements
+- Anisometropia (Anis.) measurements
+- Sections labeled "Ascan", "A-scan", "Axial Length", or similar
+
+For Cataract (single entry):
+- condition: "Cataract (A-scan)"
+- matchedDiagnosis: exact diagnosis text (e.g. "cataract", "cataract surgery")
+- pageNumber: PDF page (1-based) where A-scan found
+- testName: "A-scan"
+- reportValue: "Yes" if found, "No" if not found
+- numericValue: null
+- unit: ""
+- status: "expected" if found, "missing" if not found
+- sourceText: short snippet from PDF where A-scan data found
+`}
+
+IMPORTANT:
+- Extract ALL diagnoses and combine as comma-separated string
+- Extract lineOfTreatment separately — it is the procedure performed, not the condition
+- Extract doctor notes broadly — clinical remarks, observations, physician comments only
+- Do NOT include formal diagnosis statements or structured lab values in doctorNotes
+- Be comprehensive in extracting all diagnoses and doctor notes
+- Return schema fields only; no explanations outside requested values
+- Return a SINGLE object with all diagnoses and notes combined
+\`;
+
+export const baseDocumentExtractionPrompt = `Extract the base document information from the entire hospital bill PDF:
+- For EVERY scalar field below, return an object in the shape { value, pageNumber }
+- pageNumber must always be the physical PDF page index (1-based)
+- Do NOT use printed page numbers shown inside the document
+- Return concise field values only; never include explanations, reasoning, repeated text, or narrative outside the requested values
+- CRITICAL: if you return any non-empty/non-null value for a field, you MUST also return its pageNumber
+- Do not leave pageNumber blank when value is present
+- If you cannot determine the exact page for a value, do not guess wildly; find the page before returning the value
+
+Fields to extract as { value, pageNumber }:
+- hospitalName: Hospital name
+- patientName: Patient name
+- patientAge: Patient age
+- patientGender: Patient gender if mentioned
+- policyNumber: Policy/member/IP number if mentioned
+- invoiceNumber: Bill/invoice number if mentioned
+- admissionDate: Admission date if mentioned
+- dischargeDate: Discharge date if mentioned
+- date: Document date
+- totalAmount: Total bill amount (this is the FINAL amount AFTER any discount is applied)
+- discount: Discount amount if present
+
+Also extract DISCOUNT information if present:
+- Look for "Discount", "Less: Discount", "Rebate", "Concession", "Special Discount", "Bill Discount" in the bill summary.
+- This should be a positive number representing the discount given.
+
+Also extract GST (Goods and Services Tax) information if present:
+- Return GST as a single object in the shape:
+  gst: {
+    value: {
+      gstAmount,
+      cgstAmount,
+      sgstAmount
+    },
+    pageNumber
+  }
+- Use ONE shared GST pageNumber for the GST block/section.
+Look for GST information in summary sections, tax breakdowns, or footer areas of the bill.
+
+Also extract HOSPITAL BILL BREAKDOWN components if present:
+- hospitalBillBreakdown: Extract major components that make up the hospital bill total. Look for sections or summaries that show components like "Actual Bill", "Lens Bill", "Implant Cost", "Room Charges", "Procedure Charges", "Consumables", etc. The sum of these breakdown items should match or be close to the total hospital bill amount.
+- For procedure charges, use exactly "Procedure Charges" as the component name—do not expand with sub-categories like "(Medicines / Operation Theatre / Surgeon's Fee / Anesthetist's Fees)".
+- Only extract if the bill clearly shows these as separate components
+- Each component should have a name (e.g., "Actual Bill", "Lens Bill") and amount
+
+Also extract PACKAGE context:
+- isAllInclusivePackage: true if hospital bill is clearly all-inclusive/package style, else false
+
+Also extract DOCUMENT CHECKLIST in this shape:
+- documentChecklist: {
+    aadharCard: { value: boolean, pageNumber },
+    panCard: { value: boolean, pageNumber },
+    eCard: { value: boolean, pageNumber },
+    invoiceForSurgical: { value: boolean, pageNumber },
+    kyc: { value: boolean, pageNumber },
+    claimForm: { value: boolean, pageNumber }
+  }
+- If a document is not present, set value to false and pageNumber to 0.
+
+IMPORTANT NOTE ON DISCOUNT:
+- The totalAmount should be the FINAL amount after discount is applied
+- The discount field should contain the discount amount as a POSITIVE number
+- Example: If bill summary shows "Total: 100,000" and "Less: Discount: 5,000" and "Net Amount: 95,000", then totalAmount = 95,000 and discount = 5,000
+
+IMPORTANT NOTE ON TOTAL AMOUNTS:
+Sometimes the totalAmount shown in the PDF and the sum of all individual services may not match due to legitimate calculation errors in the PDF itself. If you identify a clear mistake in the PDF (e.g., incorrect arithmetic, missing items in the total, or incorrect GST calculation), it is acceptable to extract the amounts as they appear in the PDF even if they don't match mathematically. However, if the PDF appears correct, you must be very strict and ensure the sum of all services matches the total amount (accounting for GST and discount if applicable).`;
+
+export const combinedTariffCalculationPrompt = `You are analyzing TWO documents together:
+
+1. HOSPITAL BILL PDF – Contains the detailed list of services actually provided (procedures, room charges, consumables, medications, implants, etc.). Use this internally to understand charge components.
+2. TARIFF PDF – Contains the agreed tariff structure, package definitions, caps, limits, exclusions, and special conditions for this hospital.
+
+Your Task
+- Analyze the hospital bill to identify context (procedure, package, lens details, eye side) and use policy wordings provided in claim context for lens applicability.
+- Review the tariff PDF and EXTRACT tariff values exactly as written.
+- Do NOT perform payable calculation, lower-of logic, capping by billed amount, or policy-style adjustment.
+
+Return:
+  tariffExtractionItem -> ARRAY of extracted tariff components (primary field; use this everywhere):
+    - Each entry must have { code, name, amount, pdfText, pdfPageNumber }.
+    - Split combined entries into explicit components when present (e.g., procedure + lens).
+    - Example: if row says "Rs.19,000 (excluding lens) plus Rs.7,000 maximum admissible lens cost", return two entries:
+      1) { code: "PPN OPH 01 A", name: "Procedure Package (excluding lens)", amount: 19000, pdfText: "cataract (Excluding lens)-Phaco (maximum admissible lens - 7000)", pdfPageNumber: 2 }
+      2) { code: "PPN OPH 01 A", name: "Lens (maximum admissible)", amount: 7000, pdfText: "cataract (Excluding lens)-Phaco (maximum admissible lens - 7000)", pdfPageNumber: 2 }
+    - pdfText: copy the EXACT verbatim text fragment from the tariff PDF row/line for this item — enough to uniquely identify it by text search (minimum: the procedure name as written in the tariff).
+    - pdfPageNumber: the 1-based page number in the TARIFF PDF where this item appears.
+    - pdfRowTopPct: approximate vertical position of the TOP of this row as % of page height (0=top, 100=bottom). Estimate visually. Example: row is 60% down the page → 60.
+    - pdfRowBottomPct: approximate vertical position of the BOTTOM of this row as % of page height. Usually pdfRowTopPct + 2 to 4 for a single-line row.
+    - Do not merge procedure and lens into one entry.
+    - Preserve tariff-side amounts as written; do not reduce using hospital bill amounts.
+  lensType → Lens/IOL type if mentioned (e.g., Monofocal, Multifocal, Toric). If not mentioned, return exactly: "cant determine".
+  lensTypePageNumber → The TARIFF PDF page index (1-based) where the lens type reference is found. If not mentioned or cannot be determined, return 0.
+  lensTypeApproved -> apply exactly this logic:
+    - if lensType is "cant determine", return exactly: "cant determine"
+    - else if lensType is present AND policy wording indicates this lens type is not applicable/not covered/not payable, return false
+    - else return true
+  eyeType → Eye type for the procedure: "left eye", "right eye", or "both eyes". Determine from the diagnosis, procedure codes, doctor notes, or bill description. If not mentioned or cannot be determined, return exactly: "cant determine".
+  tariffPageNumber → The TARIFF PDF page index (1-based) where the tariff reference is found. If not mentioned or cannot be determined, return 0.
+  calculationNotes → 2-4 short sentences describing what was extracted from tariff (code/name/components/caps), no calculation narrative.
+  clarificationNote -> 1-2 short sentences only for extraction ambiguity (e.g., unreadable amount, multiple similar rows). If none, return exactly: "cant determine".
+
+Critical Rules
+1. Do NOT cap tariff values using hospital billed amounts.
+2. Do NOT convert "maximum admissible" values into billed values.
+3. If tariff row says "Rs.19,000 plus Rs.7,000 lens max", extract those tariff values as-is.
+4. Prefer exact numbers from tariff table text even if hospital bill has lower amounts.
+5. Keep extraction faithful to tariff document wording and figures.
+
+Return ONLY:
+  tariffExtractionItem
+  lensType
+  lensTypePageNumber
+  lensTypeApproved
+  eyeType
+  tariffPageNumber
+  calculationNotes
+  clarificationNote`;
+
+export const policyWordingsAdjustmentPrompt = `You are given:
+Policy Wordings / Benefit Plan Guidelines – Contains coverage rules, sub-limits, caps, exclusions, co-pay clauses, and special conditions.
+
+## Your Task
+- Extract the explicit benefit cap/amount that should act as the policy-side upper limit for claim approval.
+- Do NOT calculate final payable or perform arithmetic with hospital/tariff values.
+- Only extract what is explicitly stated in policy wording text.
+
+## Extraction Rules
+1. Identify explicit financial limits that represent a payable cap:
+   - Procedure/package caps
+   - Cataract/lens-related limits
+   - Event-level sub-limits
+2. If multiple limits exist, return the most directly applicable claim payable cap for this case context.
+3. If policy wording does not provide a clear numeric cap for this case, return null.
+4. Never invent, infer, estimate, or compute a value.
+
+## Return ONLY
+- benefitAmount → Numeric cap/benefit amount in INR when explicitly available; otherwise null
+- adjustmentNotes → 1–2 short sentences explaining what cap was extracted, or why no explicit cap was found
+- insurerType → one of: "niac", "psu", "other", "cant determine"
+- policySegment → one of: "retail", "corporate", "cant determine"
+- sumInsuredAmount → numeric sum insured in INR when explicit, else null
+- niacFlexiFloater → true only when policy explicitly indicates NIAC Flexi Floater, else false
+- hasNoCataractLimitClause → true only when wording explicitly indicates no cataract limit/cap/sublimit, else false
+- geoLensCap7000Applicable → true only when wording explicitly indicates Tamil Nadu / Kerala / Kolkata / Delhi lens cap applicability, else false`;
+
+export const alignmentCappingsCataractPrompt = (cappings: string[]): string => `
+You are reviewing benefit plan alignment conditions for a health insurance claim processor.
+
+Below is a list of alignment cappings extracted from the benefit plan. Each line is in the format "Condition Name: Details / Limits".
+
+${cappings.join("\n")}
+
+From this list, return ONLY the items that are relevant to CATARACT cases.
+Cataract-relevant items include anything mentioning: cataract, phacoemulsification, IOL, intraocular lens, lens implant, eye surgery, ophthalmic procedure, or ocular conditions.
+
+Rules:
+- Return only the relevant lines, one per line, in the exact same format as given.
+- Do not modify, summarize, or rewrite any line.
+- If no items are relevant to cataract, return exactly: NONE
+- Do not add any explanation, heading, or extra text.
+`;
+
+export const benefitPlanLimitExtractionPrompt = (
+  cappings: string[],
+  diagnosis: string,
+): string => `
+You are a health insurance claim processor extracting the applicable benefit plan limit for a patient's medical condition.
+
+PATIENT DIAGNOSIS:
+${diagnosis}
+
+BENEFIT PLAN ALIGNMENT CAPPINGS (from the insurer's benefit plan database):
+${cappings.join("\n")}
+
+YOUR TASK:
+From the cappings above, identify the single most applicable monetary limit (in INR) for this patient's diagnosis/condition.
+
+Rules:
+1. Look for a numeric amount (₹, Rs, INR) in the cappings that directly applies to the patient's condition.
+2. If multiple limits exist, return the most specific and directly applicable one (e.g. a cataract-specific limit over a general eye limit).
+3. Extract only the pure numeric value — no currency symbols, no commas. Example: if limit is ₹50,000 return 50000.
+4. If no clear numeric limit is found, return null.
+5. Never invent or estimate a value not explicitly present in the cappings.
+
+Return ONLY a valid JSON object with no extra text:
+{"benefitPlanLimit": <number or null>, "appliedCapping": "<the exact capping line used, or null>", "notes": "<1 sentence explanation>"}
+`;
+
+export const tariffFileSelectionPrompt = (
+  fileNames: string[],
+  insurerCode: string,
+  isPsu: boolean,
+): string => `
+You are selecting the most appropriate tariff file for a health insurance claim.
+
+INSURER CODE: ${insurerCode || "Unknown"}
+INSURER TYPE: ${isPsu ? "PSU (Government/Public Sector Insurer)" : "Private Insurer"}
+
+AVAILABLE TARIFF FILES:
+${fileNames.map((f, i) => `${i + 1}. ${f}`).join("\n")}
+
+SELECTION RULES (in priority order):
+${isPsu ? `
+PSU INSURER RULES:
+P1 (Highest): Pick file whose name contains the insurer code/name — most specific match.
+P2: Pick file containing "GIPSA" but NOT "SOC" — GIPSA standard tariff.
+P3: Pick file containing both "GIPSA" and "SOC" — GIPSA SOC tariff.
+P4: Pick file containing "All Insurer", "Pvt Insurer", or "Private Insurer".
+P5: Pick file containing "FHPL", "Rate List", or "RateList" — FHPL fallback.
+P6: Pick file containing "tariff".
+P7 (Lowest): Any remaining file.
+` : `
+PRIVATE INSURER RULES:
+P1 (Highest): Pick file whose name contains the insurer code/name — most specific match.
+P2: Pick file containing "All Insurer", "Pvt Insurer", or "Private Insurer".
+P3: Pick file containing "FHPL", "Rate List", or "RateList" — FHPL fallback.
+P4: Pick file containing "tariff".
+P5 (Lowest): Any remaining file.
+`}
+
+TIE-BREAKING RULE (when multiple files fall in the same priority tier):
+- Extract any date from each filename (formats: DDMMYYYY, DD-MM-YYYY, YYYY-MM-DD, MMYYYY, MMM YYYY, etc.)
+- Pick the file with the LATEST date.
+- If no date is found in filename, prefer longer/more specific filenames.
+
+Return ONLY a valid JSON object with no extra text:
+{
+  "selectedFile": "<exact filename from the list above>",
+  "priorityTier": "<e.g. P1, P2, etc.>",
+  "reason": "<one sentence explanation>"
+}
+`;
+
+export const previousClaimSimilarityPrompt = (
+  currentClaim: {
+    diagnosis: string;
+    treatment: string;
+    complaint: string;
+    billAmount: number | null;
+    hospital: string;
+    eyeType?: string;
+    deliveryType?: string;
+  },
+  previousClaim: {
+    claimId: string;
+    admissionDate: string | null;
+    diagnosis: string | null;
+    treatment: string | null;
+    complaint: string | null;
+    billAmount: number | null;
+    approvedAmount: number | null;
+    hospital: string | null;
+  },
+  benefitPlanLimit: number | null,
+  claimType: "cataract" | "maternity" | "other" = "cataract",
+): string => `
+You are a health insurance claim processor evaluating whether a current claim is similar to a previous claim for the same patient.
+
+CLAIM TYPE: ${claimType.toUpperCase()}
+
+CURRENT CLAIM:
+- Diagnosis: ${currentClaim.diagnosis}
+- Treatment: ${currentClaim.treatment}
+- Complaint/Condition: ${currentClaim.complaint}
+- Bill Amount: ${currentClaim.billAmount ?? "Unknown"}
+- Hospital: ${currentClaim.hospital}
+${currentClaim.eyeType ? `- Eye: ${currentClaim.eyeType}` : ""}
+${currentClaim.deliveryType ? `- Delivery Type: ${currentClaim.deliveryType}` : ""}
+
+LATEST PREVIOUS CLAIM (same patient):
+- Claim ID: ${previousClaim.claimId}
+- Date: ${previousClaim.admissionDate ?? "Unknown"}
+- Diagnosis: ${previousClaim.diagnosis ?? "Unknown"}
+- Treatment: ${previousClaim.treatment ?? "Unknown"}
+- Complaint/Condition: ${previousClaim.complaint ?? "Unknown"}
+- Bill Amount: ${previousClaim.billAmount ?? "Unknown"}
+- Approved Amount: ${previousClaim.approvedAmount ?? "Unknown"}
+- Hospital: ${previousClaim.hospital ?? "Unknown"}
+
+BENEFIT PLAN LIMIT: ${benefitPlanLimit ?? "Not available"}
+
+YOUR TASK:
+1. Determine if the current claim is SIMILAR to the previous claim.
+${claimType === "maternity" ? `
+   MATERNITY SIMILARITY RULES:
+   - Normal delivery and Normal delivery = SIMILAR
+   - C-Section and C-Section = SIMILAR
+   - Normal delivery and C-Section = NOT SIMILAR (different delivery type, different limit applies)
+   - Twins delivery = treat separately (may have surcharge)
+   - Same episode of care / same pregnancy = NOT a separate claim
+` : `
+   CATARACT SIMILARITY RULES:
+   - Left eye cataract and right eye cataract = SIMILAR (contralateral)
+   - Same eye operated twice = review carefully
+   - Different conditions or procedures = NOT SIMILAR
+`}
+
+2. If SIMILAR and the previous claim has an approved amount:
+   - Check if the benefit plan limit covers the previously approved amount.
+   - If yes → recommend approving the SAME amount as the previous claim.
+   - If no → recommend approving up to the benefit plan limit.
+
+3. If NOT SIMILAR → do not recommend any amount based on previous claim.
+
+Return ONLY a valid JSON object with no extra text:
+{
+  "isSimilar": true or false,
+  "similarityReason": "<one sentence explaining why similar or not>",
+  "recommendedAmount": <number or null>,
+  "recommendationBasis": "<one sentence: e.g. Same as previous claim approved amount of X, covered by benefit plan limit of Y>",
+  "confidence": "high" or "medium" or "low"
+}
+`;
+
+export const benefitSectionSummaryPrompt = (
+  section: "ailment" | "exclusions" | "copay" | "maternity",
+  rawText: string,
+): string => `
+You are summarizing benefit plan information for a health insurance claim processor.
+
+SECTION: ${
+  section === "ailment"    ? "Ailment Cappings" :
+  section === "exclusions" ? "Exclusions" :
+  section === "copay"      ? "Co-Pay" :
+  "Maternity Benefits"
+}
+
+RAW DATA:
+${rawText}
+
+Provide a concise plain-English summary (2-4 sentences maximum) of the key points relevant to a claim processor.
+- For ailment cappings: summarize the monetary limits and conditions for each ailment.
+- For exclusions: list what is NOT covered or has waiting periods.
+- For copay: state the co-pay percentage or amount and when it applies. Note any special maternity copay exceptions (e.g. no copay above certain amount).
+- For maternity: extract and summarize — (1) limit for Normal delivery, (2) limit for C-Section, (3) number of childbirths covered, (4) waiting period (Day 1 or other), (5) any copay exceptions specific to maternity.
+- Be specific with numbers/percentages and rupee amounts where present.
+- If data is empty or unclear, return: "No ${section} information available."
+
+Return ONLY the summary text. No headings, no bullet points, no JSON.
+`;
+
+// New: maternity-specific GPLA extraction prompt
+export const maternityGPLAExtractionPrompt = (documentText: string): string => `
+You are a health insurance claim processor extracting GPLA information from maternity claim documents.
+
+GPLA stands for:
+- G = Gravida (total number of pregnancies including current)
+- P = Para (number of deliveries, live or stillbirth)
+- L = Living (number of currently living children) — MOST CRITICAL
+- A = Abortion/Miscarriage (number of pregnancy losses)
+
+DOCUMENT TEXT:
+${documentText}
+
+Look for GPLA notation in:
+1. Ultrasound reports
+2. Inpatient Initial Assessment form
+3. Discharge summary
+4. Doctor notes or clinical assessment
+5. Any notation like "G2P1L1A0", "Gravida 2 Para 1", "2 living children", "first delivery" etc.
+
+Extract:
+- gpla: The full GPLA string if found (e.g. "G2P1L1A0")
+- gravida: G value as number (total pregnancies)
+- para: P value as number (deliveries)
+- living: L value as number — CRITICAL for eligibility check
+- abortion: A value as number
+- deliveryType: "Normal" / "C-Section" / "Twins" / "Unknown" based on documents
+- gestationalAge: gestational age in weeks if found (e.g. "38 weeks")
+- sourceDocument: which document contained the GPLA info
+
+Return ONLY valid JSON, no extra text:
+{
+  "gpla": "G2P1L1A0" or null,
+  "gravida": 2 or null,
+  "para": 1 or null,
+  "living": 1 or null,
+  "abortion": 0 or null,
+  "deliveryType": "Normal" or "C-Section" or "Twins" or "Unknown",
+  "gestationalAge": "38 weeks" or null,
+  "sourceDocument": "Inpatient Initial Assessment" or "Ultrasound Report" or "Discharge Summary" or null
+}
+`;
+
+// New: maternity benefit plan remarks parser
+export const maternityBenefitRemarksPrompt = (remarks: string): string => `
+You are parsing maternity benefit plan remarks for a health insurance claim processor.
+
+REMARKS TEXT:
+${remarks}
+
+Extract the following from the remarks:
+1. normalDeliveryLimit: Maximum payable amount for Normal delivery (number in rupees)
+2. cSectionLimit: Maximum payable amount for C-Section (number in rupees)
+3. maxChildbirths: Maximum number of childbirths covered (number)
+4. waitingPeriod: Waiting period — "Day 1" / "9 months" / "12 months" / other
+5. copayException: Any special copay exception rule for maternity (text or null)
+6. newbornCovered: Whether newborn baby is covered (true/false)
+7. topUpAllowed: Whether top-up/super top-up can be used (true/false)
+
+Return ONLY valid JSON:
+{
+  "normalDeliveryLimit": 50000 or null,
+  "cSectionLimit": 75000 or null,
+  "maxChildbirths": 2 or null,
+  "waitingPeriod": "Day 1" or null,
+  "copayException": "No copay if admissible amount above limit after deductions" or null,
+  "newbornCovered": true or false,
+  "topUpAllowed": true or false
+}
+`;
