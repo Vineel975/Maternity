@@ -52,6 +52,7 @@ interface ProcessPdfOptions {
 interface ProcessBaseDocumentOptions {
   fileName: string;
   pdfBuffer: Buffer;
+  pdfUrl?: string;
   modelName: string;
   provider: ModelProvider;
   providers: any;
@@ -117,13 +118,9 @@ async function processMedicalAdmissibilityWithAI({
           role: "user",
           content: [
             { type: "text", text: medicalAdmissibilityExtractionPrompt(claimType) },
-            {
-              type: "file",
-              // Use URL directly when available — AI fetches it, avoids holding large buffer
-              data: pdfUrl ? new URL(pdfUrl) : pdfBuffer,
-              mediaType: "application/pdf",
-              filename: fileName,
-            },
+            pdfUrl
+              ? { type: "file" as const, data: new URL(pdfUrl), mediaType: "application/pdf" as const }
+              : { type: "file" as const, data: pdfBuffer,       mediaType: "application/pdf" as const, filename: fileName },
           ],
         },
       ],
@@ -179,6 +176,7 @@ async function processMedicalAdmissibilityWithAI({
 async function processBaseDocumentWithAI({
   fileName,
   pdfBuffer,
+  pdfUrl,
   modelName,
   provider,
   providers,
@@ -199,12 +197,9 @@ async function processBaseDocumentWithAI({
           role: "user",
           content: [
             { type: "text", text: baseDocumentExtractionPrompt },
-            {
-              type: "file",
-              data: pdfBuffer,
-              mediaType: "application/pdf",
-              filename: fileName,
-            },
+            pdfUrl
+              ? { type: "file" as const, data: new URL(pdfUrl), mediaType: "application/pdf" as const }
+              : { type: "file" as const, data: pdfBuffer,       mediaType: "application/pdf" as const, filename: fileName },
           ],
         },
       ],
@@ -289,6 +284,7 @@ async function processPdfWithAI({
         processBaseDocumentWithAI({
           fileName,
           pdfBuffer,
+          pdfUrl,
           modelName,
           provider,
           providers,
