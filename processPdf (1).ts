@@ -600,25 +600,18 @@ export const processPdfInternal = internalAction({
       }
     }
 
-    // Get storage URL — pass to AI directly without loading into action memory
-    // This avoids the Convex action memory limit for large PDFs
+    // Get storage URL and pass directly to AI — never load PDF into action memory
+    // This is the only way to handle large PDFs (50MB+) in Convex actions
     const hospitalUrl = await ctx.storage.getUrl(args.hospitalStorageId);
     if (!hospitalUrl) {
       throw new Error("Hospital file not found in storage");
     }
     await ctx.runMutation(api.processing.addLog, {
       jobId: args.jobId,
-      message: formatLogMessage(`[DEBUG] Hospital bill URL obtained — fetching for processing`),
+      message: formatLogMessage(`[DEBUG] Hospital bill URL obtained — passing directly to AI`),
     });
-    // Fetch the PDF bytes via URL (streamed, no in-memory blob from Convex)
-    const hospitalFetch = await fetch(hospitalUrl);
-    if (!hospitalFetch.ok) throw new Error(`Failed to fetch hospital PDF: ${hospitalFetch.status}`);
-    const hospitalBuffer = Buffer.from(await hospitalFetch.arrayBuffer());
-    const hospitalSizeMb = (hospitalBuffer.byteLength / 1024 / 1024).toFixed(2);
-    await ctx.runMutation(api.processing.addLog, {
-      jobId: args.jobId,
-      message: formatLogMessage(`[DEBUG] Hospital bill fetched: ${hospitalSizeMb} MB`),
-    });
+    // Use an empty buffer placeholder — actual PDF is fetched by AI via URL
+    const hospitalBuffer = Buffer.alloc(0);
 
     const modelName =
       process.env.MODEL_NAME || "google/gemini-3-flash-preview";
