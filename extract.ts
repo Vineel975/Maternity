@@ -39,6 +39,7 @@ type DeductibleEntry = {
 interface ProcessPdfOptions {
   fileName: string;
   pdfBuffer: Buffer;
+  pdfUrl?: string; // optional URL — passed directly to AI, avoids holding buffer in AI call
   modelName: string;
   provider: ModelProvider;
   providers: any;
@@ -59,6 +60,7 @@ interface ProcessBaseDocumentOptions {
 interface ProcessMedicalAdmissibilityOptions {
   fileName: string;
   pdfBuffer: Buffer;
+  pdfUrl?: string;
   modelName: string;
   provider: ModelProvider;
   providers: any;
@@ -93,6 +95,7 @@ function summarizeBaseDocumentExtraction(
 async function processMedicalAdmissibilityWithAI({
   fileName,
   pdfBuffer,
+  pdfUrl,
   modelName,
   provider,
   providers,
@@ -116,7 +119,8 @@ async function processMedicalAdmissibilityWithAI({
             { type: "text", text: medicalAdmissibilityExtractionPrompt(claimType) },
             {
               type: "file",
-              data: pdfBuffer,
+              // Use URL directly when available — AI fetches it, avoids holding large buffer
+              data: pdfUrl ? new URL(pdfUrl) : pdfBuffer,
               mediaType: "application/pdf",
               filename: fileName,
             },
@@ -250,6 +254,7 @@ async function processBaseDocumentWithAI({
 async function processPdfWithAI({
   fileName,
   pdfBuffer,
+  pdfUrl,
   modelName,
   provider,
   providers,
@@ -291,6 +296,7 @@ async function processPdfWithAI({
         processMedicalAdmissibilityWithAI({
           fileName,
           pdfBuffer,
+          pdfUrl,
           modelName,
           provider,
           providers,
@@ -323,6 +329,7 @@ async function processPdfWithAI({
       const admissResult = await processMedicalAdmissibilityWithAI({
         fileName,
         pdfBuffer,
+        pdfUrl,
         modelName,
         provider,
         providers,
@@ -375,6 +382,7 @@ async function processPdfWithAI({
 export interface ProcessSinglePdfOptions {
   fileName: string;
   pdfBuffer: Buffer;
+  pdfUrl?: string; // optional — passed to AI directly, avoids memory issues for large files
   modelName: string;
   provider: ModelProvider;
   providers: any;
@@ -398,6 +406,7 @@ export interface ProcessSinglePdfResult {
 export async function processSinglePdf({
   fileName,
   pdfBuffer,
+  pdfUrl,
   modelName,
   provider,
   providers,
@@ -426,6 +435,7 @@ export async function processSinglePdf({
     } = await processPdfWithAI({
       fileName,
       pdfBuffer,
+      pdfUrl,
       modelName,
       provider,
       providers,
