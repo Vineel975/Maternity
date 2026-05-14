@@ -25,6 +25,10 @@ import { ConvexHttpClient } from "convex/browser";
 import { api } from "@/convex/_generated/api";
 import type { Id } from "@/convex/_generated/dataModel";
 
+// Allow up to 2 minutes for large PDF uploads to Convex storage
+export const maxDuration = 120;
+
+
 const CONVEX_URL =
   process.env.CONVEX_URL_PUBLIC ??
   process.env.NEXT_PUBLIC_CONVEX_URL;
@@ -33,30 +37,50 @@ async function uploadToConvex(
   convex: ConvexHttpClient,
   buffer: ArrayBuffer,
   mimeType: string,
+  retries = 3,
 ): Promise<Id<"_storage">> {
-  const uploadUrl: string = await convex.mutation(
-    api.jobMutations.generateUploadUrl,
-    {},
-  );
+  let lastError: Error | null = null;
 
-  // Use 2-minute timeout as recommended by Convex for large file uploads
-  const uploadResponse = await fetch(uploadUrl, {
-    method: "POST",
-    headers: { "Content-Type": mimeType },
-    body: buffer,
-    signal: AbortSignal.timeout(120_000), // 2 minutes
-  });
+  for (let attempt = 1; attempt <= retries; attempt++) {
+    try {
+      // Generate a fresh upload URL for each attempt
+      const uploadUrl: string = await convex.mutation(
+        api.jobMutations.generateUploadUrl,
+        {},
+      );
 
-  if (!uploadResponse.ok) {
-    throw new Error(
-      `Convex storage upload failed: ${uploadResponse.status} ${uploadResponse.statusText}`,
-    );
+      // 2-minute timeout as per Convex docs for large file uploads
+      const uploadResponse = await fetch(uploadUrl, {
+        method: "POST",
+        headers: { "Content-Type": mimeType },
+        body: buffer,
+        signal: AbortSignal.timeout(120_000), // 2 minutes
+      });
+
+      if (!uploadResponse.ok) {
+        throw new Error(
+          `Convex storage upload failed: ${uploadResponse.status} ${uploadResponse.statusText}`,
+        );
+      }
+
+      const { storageId } = (await uploadResponse.json()) as {
+        storageId: Id<"_storage">;
+      };
+      return storageId;
+
+    } catch (err) {
+      lastError = err instanceof Error ? err : new Error(String(err));
+      console.error(`[uploadToConvex] Attempt ${attempt}/${retries} failed:`, lastError.message);
+
+      // Don't retry on the last attempt
+      if (attempt < retries) {
+        // Wait 2s before retrying
+        await new Promise((res) => setTimeout(res, 2000));
+      }
+    }
   }
 
-  const { storageId } = (await uploadResponse.json()) as {
-    storageId: Id<"_storage">;
-  };
-  return storageId;
+  throw lastError ?? new Error("Upload failed after all retries");
 }
 
 export async function POST(request: NextRequest) {
