@@ -1,3 +1,7 @@
+Argument of type 'Buffer<ArrayBuffer>' is not assignable to parameter of type 'ArrayBuffer'.
+  Type 'Buffer<ArrayBuffer>' is missing the following properties from type 'ArrayBuffer': maxByteLength, resizable, resize, detached, and 2 more.ts(2345)
+const hospitalBuffer: Buffer<ArrayBuffer>
+
 <img width="1239" height="601" alt="image" src="https://github.com/user-attachments/assets/acb69b99-1e87-4719-bd57-c6ff007ce56c" />
 
 
