@@ -137,22 +137,41 @@ export async function POST(request: NextRequest) {
 
   const convex = new ConvexHttpClient(CONVEX_URL!);
 
-  // ── 2. Read PDF bytes (already in memory from formData) ───────────────────
+  // ── 2. Read PDF bytes and upload to Convex storage ─────────────────────────
   const hospitalBuffer = Buffer.from(await medicalBill.arrayBuffer());
   const hospitalSizeMb = (hospitalBuffer.byteLength / 1024 / 1024).toFixed(2);
   console.log(`[audit/start] Medical bill size: ${hospitalSizeMb} MB`);
 
-  let tariffBuffer: Buffer | undefined;
-  if (tariffBill && tariffBill.size > 0) {
-    tariffBuffer = Buffer.from(await tariffBill.arrayBuffer());
+  // Upload to Convex storage so the PDF viewer can render it on the right side
+  let hospitalStorageId: Id<"_storage">;
+  try {
+    hospitalStorageId = await uploadToConvex(convex, hospitalBuffer, "application/pdf");
+  } catch (err) {
+    return NextResponse.json(
+      { success: false, error: `Failed to upload medical bill: ${err instanceof Error ? err.message : String(err)}` },
+      { status: 500 },
+    );
   }
 
-  // ── 3. Create Convex job (pending) ────────────────────────────────────────
+  let tariffStorageId: Id<"_storage"> | undefined;
+  if (tariffBill && tariffBill.size > 0) {
+    try {
+      const tariffBuf = await tariffBill.arrayBuffer();
+      tariffStorageId = await uploadToConvex(convex, tariffBuf, "application/pdf");
+    } catch (err) {
+      console.warn("[audit/start] Tariff upload failed (non-critical):", err);
+    }
+  }
+
+  // ── 3. Create Convex job with files (for PDF viewer) — NO action scheduled ─
   let jobId: Id<"processJob">;
   try {
     jobId = await convex.mutation(api.jobMutations.createJobAndProcess, {
       claimId,
+      hospitalStorageId,
       hospitalFileName: medicalBill.name || "medical-bill.pdf",
+      tariffStorageId,
+      tariffFileName: tariffBill?.name,
       spectraFields,
     });
   } catch (err) {
