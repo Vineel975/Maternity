@@ -7272,15 +7272,13 @@
                 return;
             }
 
-            // Fire webhook to pre-process claim (fire & forget)
-            claimAI_fireWebhook(claimID, slNo);
-
-            // Check if already pre-processed — if yes, load instantly
-            // If not, proceed with on-demand flow
-            claimAI_checkStagingAndLoad(claimID, slNo, function() {
-                // On-demand fallback — fetch documents and submit
-                _doInitAiSummaryOnDemand(claimID, slNo);
-            });
+            // STAGING TEMPORARILY DISABLED — process every claim on-demand
+            // To re-enable staging, uncomment the block below and remove the direct call
+            // claimAI_fireWebhook(claimID, slNo);
+            // claimAI_checkStagingAndLoad(claimID, slNo, function() {
+            //     _doInitAiSummaryOnDemand(claimID, slNo);
+            // });
+            _doInitAiSummaryOnDemand(claimID, slNo);
         }
 
         function _doInitAiSummaryOnDemand(claimID, slNo) {
@@ -7525,21 +7523,17 @@
                     $('#divAiLoading').hide();
                     $('#ifrClaimAI').attr('src', src).show();
 
-                    // Store jobId in staging DB for fast future loads
-                    var _stgKey = '@System.Configuration.ConfigurationManager.AppSettings["StagingApiKey"]' || '';
-                    $.ajax({
-                        url:         _claimAiUrl + '/api/staging/store-job',
-                        method:      'POST',
-                        contentType: 'application/json',
-                        headers:     { 'x-api-key': _stgKey },
-                        data:        JSON.stringify({
-                            claimId: claimID.toString(),
-                            slNo:    ($('#hdnClaimSlNo').val() || '1').toString(),
-                            jobId:   jobId
-                        }),
-                        success: function() { console.log('[ClaimAI] Staging: jobId stored for future fast load'); },
-                        error:   function() { console.log('[ClaimAI] Staging: store-job failed (non-critical)'); }
-                    });
+                    // STAGING TEMPORARILY DISABLED — store-job call commented out
+                    // var _stgKey = '@System.Configuration.ConfigurationManager.AppSettings["StagingApiKey"]' || '';
+                    // $.ajax({
+                    //     url:         _claimAiUrl + '/api/staging/store-job',
+                    //     method:      'POST',
+                    //     contentType: 'application/json',
+                    //     headers:     { 'x-api-key': _stgKey },
+                    //     data:        JSON.stringify({ claimId: claimID.toString(), slNo: ($('#hdnClaimSlNo').val() || '1').toString(), jobId: jobId }),
+                    //     success: function() { console.log('[ClaimAI] Staging: jobId stored for future fast load'); },
+                    //     error:   function() { console.log('[ClaimAI] Staging: store-job failed (non-critical)'); }
+                    // });
 
 
                 },
