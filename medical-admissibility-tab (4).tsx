@@ -496,9 +496,6 @@ function buildDynamicConditionRows(
   icdCodeMap?: Map<string, string>,
 ): ConditionRow[] {
   const rows: ConditionRow[] = [];
-  // Track conditions we've already added an ICD row for — avoids duplicate ICD rows
-  // when multiple conditionTests share the same condition (e.g. 3 maternity documents)
-  const seenConditions = new Set<string>();
 
   for (const ct of conditionTests) {
     const matchesRule = conditionRules.some((r) =>
@@ -511,22 +508,16 @@ function buildDynamicConditionRows(
       .trim();
     if (!conditionKey) continue;
 
-    // Only create one ICD row per unique condition
-    if (seenConditions.has(conditionKey)) continue;
-    seenConditions.add(conditionKey);
-
     const icdCode = icdCodeMap?.get(conditionKey) || undefined;
-    // "Yes" if ANY conditionTest with this condition has status "expected"
-    const allForCondition = conditionTests.filter(
-      (c) => (c.condition || c.matchedDiagnosis || "").toLowerCase().trim() === conditionKey
-    );
-    const reported: "Yes" | "No" = allForCondition.some(
-      (c) => c.status === "expected" || (c.reportValue || "").toLowerCase() === "yes"
-    ) ? "Yes" : "No";
+    const reported: "Yes" | "No" =
+      ct.status === "expected" ||
+      (ct.reportValue || "").toLowerCase() === "yes"
+        ? "Yes"
+        : "No";
 
     rows.push({
       condition: ct.condition || ct.matchedDiagnosis || "—",
-      test: allForCondition.map((c) => c.testName || "—").join(", "),
+      test: ct.testName || "—",
       reported,
       icdCode,
       pageNumber: ct.pageNumber,
@@ -830,7 +821,12 @@ export function MedicalAdmissibilityTab({
                         </TableRow>
                       </TableHeader>
                       <TableBody>
-                        {conditionRows.map((row, idx) => (
+                        {/* Deduplicate by conditionKey — one ICD row per unique condition */}
+                        {conditionRows
+                          .filter((row, idx, arr) =>
+                            arr.findIndex((r) => r.conditionKey === row.conditionKey) === idx
+                          )
+                          .map((row, idx) => (
                           <TableRow key={`icd-row-${idx}`} className={onScrollToPage && row.pageNumber ? "cursor-pointer hover:bg-gray-50" : ""}>
                             {Array.from({ length: 7 }, (_, i) => (
                               <TableCell key={i} className="align-top p-1">
