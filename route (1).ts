@@ -139,6 +139,11 @@ export async function POST(request: NextRequest) {
   let hospitalStorageId: Id<"_storage">;
   try {
     const buffer = await medicalBill.arrayBuffer();
+    const fileSizeMb = (buffer.byteLength / 1024 / 1024).toFixed(2);
+    console.log(`[audit/start] Medical bill size: ${fileSizeMb} MB`);
+    if (buffer.byteLength > 50 * 1024 * 1024) {
+      console.warn(`[audit/start] WARNING: Medical bill is ${fileSizeMb} MB — Convex action may run out of memory. Consider compressing before upload.`);
+    }
     hospitalStorageId = await uploadToConvex(convex, buffer, "application/pdf");
   } catch (err) {
     return NextResponse.json(
