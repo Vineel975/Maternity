@@ -600,18 +600,26 @@ export const processPdfInternal = internalAction({
       }
     }
 
-    // Get public Convex storage URL — pass to AI directly, no bytes loaded in action
-    // Convex storage URLs are public and non-expiring (no auth required)
+    // Fetch PDF via public Convex storage URL using Node fetch
+    // We fetch it ourselves (not passing URL to Google which can't access it)
     const hospitalUrl = await ctx.storage.getUrl(args.hospitalStorageId);
     if (!hospitalUrl) {
       throw new Error("Hospital file not found in storage");
     }
     await ctx.runMutation(api.processing.addLog, {
       jobId: args.jobId,
-      message: formatLogMessage(`[DEBUG] Hospital bill URL ready — AI will fetch directly`),
+      message: formatLogMessage(`[DEBUG] Fetching hospital bill from storage URL`),
     });
-    // Empty buffer — pdfUrl is used instead, buffer never loaded into memory
-    const hospitalBuffer = Buffer.alloc(0);
+    const hospitalFetch = await fetch(hospitalUrl);
+    if (!hospitalFetch.ok) {
+      throw new Error(`Failed to fetch hospital PDF from storage: ${hospitalFetch.status}`);
+    }
+    const hospitalBuffer = Buffer.from(await hospitalFetch.arrayBuffer());
+    const hospitalSizeMb = (hospitalBuffer.byteLength / 1024 / 1024).toFixed(2);
+    await ctx.runMutation(api.processing.addLog, {
+      jobId: args.jobId,
+      message: formatLogMessage(`[DEBUG] Hospital bill loaded: ${hospitalSizeMb} MB`),
+    });
 
     const modelName =
       process.env.MODEL_NAME || "google/gemini-3-flash-preview";
@@ -655,7 +663,6 @@ export const processPdfInternal = internalAction({
       const { result, totals } = await processSinglePdf({
         fileName: args.fileName,
         pdfBuffer: hospitalBuffer,
-        pdfUrl: hospitalUrl,
         modelName,
         provider: provider as ModelProvider,
         providers,
