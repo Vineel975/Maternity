@@ -118,9 +118,12 @@ async function processMedicalAdmissibilityWithAI({
           role: "user",
           content: [
             { type: "text", text: medicalAdmissibilityExtractionPrompt(claimType) },
-            ...(pdfUrl
-              ? [{ type: "file" as const, data: new URL(pdfUrl), mediaType: "application/pdf" as const }]
-              : [{ type: "file" as const, data: pdfBuffer, mediaType: "application/pdf" as const, filename: fileName }]),
+            {
+              type: "file",
+              data: pdfBuffer,
+              mediaType: "application/pdf",
+              filename: fileName,
+            },
           ],
         },
       ],
@@ -197,9 +200,12 @@ async function processBaseDocumentWithAI({
           role: "user",
           content: [
             { type: "text", text: baseDocumentExtractionPrompt },
-            ...(pdfUrl
-              ? [{ type: "file" as const, data: new URL(pdfUrl), mediaType: "application/pdf" as const }]
-              : [{ type: "file" as const, data: pdfBuffer, mediaType: "application/pdf" as const, filename: fileName }]),
+            {
+              type: "file",
+              data: pdfBuffer,
+              mediaType: "application/pdf",
+              filename: fileName,
+            },
           ],
         },
       ],
