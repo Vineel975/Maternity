@@ -600,16 +600,24 @@ export const processPdfInternal = internalAction({
       }
     }
 
-    // Fetch hospital file from storage and process it in memory
-    const hospitalBlob = await ctx.storage.get(args.hospitalStorageId);
-    if (!hospitalBlob) {
+    // Get storage URL — pass to AI directly without loading into action memory
+    // This avoids the Convex action memory limit for large PDFs
+    const hospitalUrl = await ctx.storage.getUrl(args.hospitalStorageId);
+    if (!hospitalUrl) {
       throw new Error("Hospital file not found in storage");
     }
-    const hospitalBuffer = Buffer.from(await hospitalBlob.arrayBuffer());
+    await ctx.runMutation(api.processing.addLog, {
+      jobId: args.jobId,
+      message: formatLogMessage(`[DEBUG] Hospital bill URL obtained — fetching for processing`),
+    });
+    // Fetch the PDF bytes via URL (streamed, no in-memory blob from Convex)
+    const hospitalFetch = await fetch(hospitalUrl);
+    if (!hospitalFetch.ok) throw new Error(`Failed to fetch hospital PDF: ${hospitalFetch.status}`);
+    const hospitalBuffer = Buffer.from(await hospitalFetch.arrayBuffer());
     const hospitalSizeMb = (hospitalBuffer.byteLength / 1024 / 1024).toFixed(2);
     await ctx.runMutation(api.processing.addLog, {
       jobId: args.jobId,
-      message: formatLogMessage(`[DEBUG] Hospital bill loaded: ${hospitalSizeMb} MB`),
+      message: formatLogMessage(`[DEBUG] Hospital bill fetched: ${hospitalSizeMb} MB`),
     });
 
     const modelName =
@@ -654,6 +662,7 @@ export const processPdfInternal = internalAction({
       const { result, totals } = await processSinglePdf({
         fileName: args.fileName,
         pdfBuffer: hospitalBuffer,
+        pdfUrl: hospitalUrl,   // pass URL so AI can fetch directly if needed
         modelName,
         provider: provider as ModelProvider,
         providers,
