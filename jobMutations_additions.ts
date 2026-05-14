@@ -108,3 +108,30 @@ export const completeJobWithResult = mutation({
     return { success: true };
   },
 });
+
+// ─── ADD THESE TO convex/processing.ts (or wherever getJobById lives) ────────
+
+// Get job results for a given job
+export const getJobResults = query({
+  args: { jobId: v.id("processJob") },
+  handler: async (ctx, args) => {
+    return await ctx.db
+      .query("jobResults")
+      .withIndex("by_jobId", (q) => q.eq("jobId", args.jobId))
+      .collect();
+  },
+});
+
+// Update the analysis field of a specific jobResult (used by tariff matching)
+export const updateJobResultAnalysis = mutation({
+  args: {
+    jobResultId: v.id("jobResults"),
+    analysis: v.any(),
+  },
+  handler: async (ctx, args) => {
+    await ctx.db.patch(args.jobResultId, {
+      analysis: args.analysis,
+    });
+    return { success: true };
+  },
+});
