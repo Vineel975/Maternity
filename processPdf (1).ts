@@ -932,3 +932,105 @@ export const processPdfInternal = internalAction({
     }
   },
 });
+
+
+// ── Lightweight tariff-only action ─────────────────────────────────────────
+// Called from audit/start route after processSinglePdf completes.
+// Only reads tariff PDF (small) from Convex storage — no hospital bill loading.
+export const runTariffMatching = action({
+  args: {
+    jobId: v.id("processJob"),
+    tariffStorageId: v.optional(v.id("_storage")),
+  },
+  handler: async (ctx, args) => {
+    const formatLogMessage = (message: string) => {
+      const timestamp = new Date().toLocaleString("en-US", {
+        year: "numeric", month: "numeric", day: "numeric",
+        hour: "numeric", minute: "2-digit", second: "2-digit", hour12: true,
+      });
+      return `${timestamp} [LOG] '${message}'`;
+    };
+
+    const job = await ctx.runQuery(api.processing.getJobById, {
+      jobId: args.jobId,
+    });
+    const claimId = typeof job?.claimId === "string" ? job.claimId.trim() : "";
+
+    // Get the existing result from jobResults
+    const jobResults = await ctx.runQuery(api.processing.getJobResults, {
+      jobId: args.jobId,
+    });
+    if (!jobResults?.length) {
+      await ctx.runMutation(api.processing.addLog, {
+        jobId: args.jobId,
+        message: formatLogMessage("[DEBUG][TARIFF] No job results found — skipping tariff matching"),
+      });
+      return;
+    }
+
+    const jobResult = jobResults[0];
+    const result = { filePath: jobResult.filePath || "", analysis: jobResult.analysis as Record<string, any> };
+
+    let policyWordings = "";
+    if (claimId) {
+      try {
+        policyWordings = (await getBenefitPlanTextByClaimId(claimId))?.trim() || "";
+      } catch (e) {
+        // non-critical
+      }
+    }
+
+    const modelName = process.env.MODEL_NAME || "google/gemini-3-flash-preview";
+    const provider = process.env.MODEL_PROVIDER || "openrouter";
+    const providers = await fetchModels();
+
+    const tariffCatalog = (await ctx.runQuery(
+      api.processing.getTariffPdfCatalog,
+    )) as TariffCatalogItem[];
+
+    await ctx.runMutation(api.processing.addLog, {
+      jobId: args.jobId,
+      message: formatLogMessage(
+        `[DEBUG][TARIFF] Starting tariff match for hospital="${result.analysis?.hospitalName?.value || "N/A"}"`,
+      ),
+    });
+
+    const tariffMatch = await resolveTariffForResult(
+      ctx,
+      args.jobId,
+      result,
+      tariffCatalog,
+      args.tariffStorageId,
+      policyWordings,
+      provider as ModelProvider,
+      modelName,
+      providers,
+    );
+
+    // Enrich the analysis with tariff data
+    const patch: Record<string, any> = {};
+    if (tariffMatch.matchedFileName) patch.tariffFileName = tariffMatch.matchedFileName;
+    if (tariffMatch.tariffExtractionItem) patch.tariffExtractionItem = tariffMatch.tariffExtractionItem;
+    if (tariffMatch.lensType !== undefined) patch.lensType = tariffMatch.lensType;
+    if (tariffMatch.lensTypeApproved !== undefined) patch.lensTypeApproved = tariffMatch.lensTypeApproved;
+    if (tariffMatch.tariffPageNumber !== undefined) patch.tariffPageNumber = tariffMatch.tariffPageNumber;
+    if (tariffMatch.eyeType !== undefined) patch.eyeType = tariffMatch.eyeType;
+    if (tariffMatch.tariffNotes !== undefined) patch.tariffNotes = tariffMatch.tariffNotes;
+    if (tariffMatch.tariffClarificationNote !== undefined) patch.tariffClarificationNote = tariffMatch.tariffClarificationNote;
+
+    // Update the jobResult analysis with tariff data
+    if (Object.keys(patch).length > 0) {
+      const updatedAnalysis = { ...result.analysis, ...patch };
+      await ctx.runMutation(api.processing.updateJobResultAnalysis, {
+        jobResultId: jobResult._id,
+        analysis: updatedAnalysis,
+      });
+      await ctx.runMutation(api.processing.addLog, {
+        jobId: args.jobId,
+        message: formatLogMessage(
+          `[DEBUG][TARIFF] Updated result with tariff data: ${Object.keys(patch).join(", ")}`,
+        ),
+      });
+    }
+  },
+});
