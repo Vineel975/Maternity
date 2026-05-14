@@ -26,6 +26,7 @@ import { api } from "@/convex/_generated/api";
 import type { Id } from "@/convex/_generated/dataModel";
 import { processSinglePdf } from "@/src/extract";
 import { fetchModels } from "@tokenlens/fetch";
+import { validateExtractedPatient, getPatientInfoDbByClaimId } from "@/lib/db";
 
 // Allow up to 2 minutes for large PDF uploads to Convex storage
 export const maxDuration = 120;
@@ -205,6 +206,28 @@ export async function POST(request: NextRequest) {
       claimType: claimType as "cataract" | "maternity" | "other",
     });
 
+    // ── Post-processing: patient validation ────────────────────────────────────
+    try {
+      const patientValidation = await validateExtractedPatient({
+        patientName: result.analysis.patientName?.value,
+        patientAge: result.analysis.patientAge?.value,
+        patientGender: result.analysis.patientGender?.value,
+        policyNumber: result.analysis.policyNumber?.value,
+      }, claimId);
+      result.analysis.patientValidation = patientValidation;
+    } catch (e) {
+      console.warn("[audit/start] Patient validation failed:", e);
+    }
+
+    try {
+      const patientInfoDb = await getPatientInfoDbByClaimId(claimId);
+      if (patientInfoDb) {
+        result.analysis.patientInfoDb = patientInfoDb;
+      }
+    } catch (e) {
+      console.warn("[audit/start] Patient DB info failed:", e);
+    }
+
     // Save result.analysis (not the full result object — UI reads analysis from jobResults)
     await convex.mutation(api.jobMutations.completeJobWithResult, {
       jobId,
@@ -221,6 +244,17 @@ export async function POST(request: NextRequest) {
       totalPromptTokens:        totals.totalPromptTokens,
       totalCompletionTokens:    totals.totalCompletionTokens,
     });
+
+    // ── Trigger tariff matching as a lightweight Convex action ─────────────────
+    // Tariff needs Convex ctx to read tariff PDFs from storage — can't run in Next.js
+    try {
+      await convex.action(api.processPdf.runTariffMatching, {
+        jobId,
+        tariffStorageId,
+      });
+    } catch (e) {
+      console.warn("[audit/start] Tariff matching failed:", e);
+    }
   } catch (err) {
     console.error("[audit/start] Processing error:", err);
     await convex.mutation(api.jobMutations.completeJobWithResult, {
