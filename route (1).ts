@@ -24,6 +24,9 @@ import { NextRequest, NextResponse } from "next/server";
 import { ConvexHttpClient } from "convex/browser";
 import { api } from "@/convex/_generated/api";
 import type { Id } from "@/convex/_generated/dataModel";
+import { processSinglePdf } from "@/src/extract";
+import { getBenefitPlanTextByClaimId } from "@/src/db";
+import { fetchModels } from "@tokenlens/fetch";
 
 // Allow up to 2 minutes for large PDF uploads to Convex storage
 export const maxDuration = 120;
@@ -135,65 +138,77 @@ export async function POST(request: NextRequest) {
 
   const convex = new ConvexHttpClient(CONVEX_URL!);
 
-  // ── 2. Upload medical bill to Convex storage ───────────────────────────────
-  let hospitalStorageId: Id<"_storage">;
-  try {
-    const buffer = await medicalBill.arrayBuffer();
-    const fileSizeMb = (buffer.byteLength / 1024 / 1024).toFixed(2);
-    console.log(`[audit/start] Medical bill size: ${fileSizeMb} MB`);
-    if (buffer.byteLength > 50 * 1024 * 1024) {
-      console.warn(`[audit/start] WARNING: Medical bill is ${fileSizeMb} MB — Convex action may run out of memory. Consider compressing before upload.`);
-    }
-    hospitalStorageId = await uploadToConvex(convex, buffer, "application/pdf");
-  } catch (err) {
-    return NextResponse.json(
-      {
-        success: false,
-        error: `Failed to upload medical bill: ${err instanceof Error ? err.message : String(err)}`,
-      },
-      { status: 500 },
-    );
-  }
+  // ── 2. Read PDF bytes (already in memory from formData) ───────────────────
+  const hospitalBuffer = Buffer.from(await medicalBill.arrayBuffer());
+  const hospitalSizeMb = (hospitalBuffer.byteLength / 1024 / 1024).toFixed(2);
+  console.log(`[audit/start] Medical bill size: ${hospitalSizeMb} MB`);
 
-  // ── 3. Upload tariff bill to Convex storage (optional) ────────────────────
-  let tariffStorageId: Id<"_storage"> | undefined;
+  let tariffBuffer: Buffer | undefined;
   if (tariffBill && tariffBill.size > 0) {
-    try {
-      const buffer = await tariffBill.arrayBuffer();
-      tariffStorageId = await uploadToConvex(convex, buffer, "application/pdf");
-    } catch (err) {
-      return NextResponse.json(
-        {
-          success: false,
-          error: `Failed to upload tariff bill: ${err instanceof Error ? err.message : String(err)}`,
-        },
-        { status: 500 },
-      );
-    }
+    tariffBuffer = Buffer.from(await tariffBill.arrayBuffer());
   }
 
-  // ── 4. Create Convex job — schedules processPdfInternal automatically ──────
+  // ── 3. Create Convex job (pending) ────────────────────────────────────────
   let jobId: Id<"processJob">;
   try {
-    jobId = await convex.mutation(api.jobMutations.createJobWithFiles, {
+    jobId = await convex.mutation(api.jobMutations.createJobAndProcess, {
       claimId,
-      hospitalStorageId,
       hospitalFileName: medicalBill.name || "medical-bill.pdf",
-      tariffStorageId,
-      tariffFileName: tariffBill?.name || undefined,
       spectraFields,
     });
   } catch (err) {
     return NextResponse.json(
-      {
-        success: false,
-        error: `Failed to create processing job: ${err instanceof Error ? err.message : String(err)}`,
-      },
+      { success: false, error: `Failed to create job: ${err instanceof Error ? err.message : String(err)}` },
       { status: 500 },
     );
   }
 
-  // ── 5. Return jobId immediately — no polling ───────────────────────────────
+  // ── 4. Return jobId immediately — process PDF in background ───────────────
+  // Use setImmediate to not block the response
+  const doProcess = async () => {
+    try {
+      const modelName = process.env.MODEL_NAME || "google/gemini-3-flash-preview";
+      const provider = process.env.MODEL_PROVIDER || "openrouter";
+      const providers = await fetchModels();
+      const policyWordings = claimId
+        ? ((await getBenefitPlanTextByClaimId(claimId))?.trim() || "")
+        : "";
+      const claimType = (spectraFields?.claimType as string) ?? "cataract";
+
+      // Get tariff catalog from Convex
+      const tariffCatalog = await convex.query(api.processing.getTariffPdfCatalog, {});
+
+      const { result } = await processSinglePdf({
+        fileName: medicalBill.name || "medical-bill.pdf",
+        pdfBuffer: hospitalBuffer,
+        modelName,
+        provider: provider as "openrouter" | "anthropic" | "google",
+        providers,
+        claimType: claimType as "cataract" | "maternity" | "other",
+      });
+
+      // Save result to Convex
+      await convex.mutation(api.jobMutations.completeJobWithResult, {
+        jobId,
+        result: JSON.stringify(result),
+        status: "completed",
+      });
+    } catch (err) {
+      console.error("[audit/start] Processing error:", err);
+      await convex.mutation(api.jobMutations.updateJobStatus, {
+        jobId,
+        status: "error",
+        error: err instanceof Error ? err.message : String(err),
+        isComplete: true,
+        completed: 0,
+        errorCount: 1,
+      }).catch(() => {});
+    }
+  };
+
+  // Fire and forget — don't await
+  doProcess().catch(console.error);
+
   return NextResponse.json(
     { success: true, jobId: jobId as string, claimId },
     { status: 200 },
