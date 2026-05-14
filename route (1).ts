@@ -186,10 +186,14 @@ export async function POST(request: NextRequest) {
       claimType: claimType as "cataract" | "maternity" | "other",
     });
 
-    // Save completed result to Convex
+    // Save result.analysis (not the full result object — UI reads analysis from jobResults)
     await convex.mutation(api.jobMutations.completeJobWithResult, {
       jobId,
-      analysis: result,
+      analysis: result.analysis,
+      filePath: result.filePath || "",
+      usage: result.usage || {},
+      processingTimeMs: totals.totalTimeMs || 0,
+      cost: totals.totalCost || 0,
       status: "completed",
       successCount: 1,
       errorCount: 0,
