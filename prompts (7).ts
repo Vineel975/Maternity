@@ -1,13 +1,11 @@
-export const medicalAdmissibilityExtractionPrompt = (
-  claimType: "cataract" | "maternity" | "other" = "cataract"
-): string => {
+export const medicalAdmissibilityExtractionPrompt = (claimType: "cataract" | "maternity" | "other" = "cataract"): string => {
   const conditionTestsSection = claimType === "maternity"
     ? `- conditionTests: Look for these maternity supporting documents:
   - Ultrasound report: gestational age, presentation (cephalic/breech), GPLA notation (e.g. G2P1L1A0)
   - Inpatient Initial Assessment form: L value (living children) — CRITICAL for eligibility
   - Discharge summary: delivery type (Normal/C-Section/Twins), complications
   For each document found, create one entry:
-    - condition: e.g. "Ultrasound Report", "Inpatient Assessment", "Discharge Summary"
+    - condition: "Maternity" (ALWAYS use "Maternity" as the condition for ALL entries)
     - matchedDiagnosis: e.g. "maternity", "normal delivery", "LSCS"
     - pageNumber: PDF page (1-based) where document found
     - testName: "GPLA" for ultrasound/assessment, "Delivery Type" for discharge summary
@@ -57,6 +55,76 @@ IMPORTANT:
 - Return schema fields only; no explanations outside requested values
 - Return a SINGLE object with all diagnoses and notes combined`;
 };
+
+"cataract" | "maternity" | "other" = "cataract"): string => `Extract medical admissibility information from this document. Look for:
+- Medical diagnosis or condition statements
+- Doctor's notes, clinical observations, or medical findings
+- Medical admissibility check reports
+- Clinical assessment sections
+- Physician notes or remarks
+
+Extract the following information as a SINGLE object:
+- diagnosis: ALL medical diagnoses or conditions identified in the document, combined together as a comma-separated list. This includes specific diseases, conditions, medical findings, or nature of illness mentioned in the admissibility report. Look for sections labeled "Diagnosis", "Condition", "Medical Finding", "Nature of Illness", or similar terms. If multiple diagnoses are present, combine them all into a single string separated by commas.
+- lineOfTreatment: The line of treatment or surgical/medical procedure that was performed or planned. This is WHAT WAS DONE (the procedure), NOT the diagnosis (the condition). Look for sections labeled "Line of Treatment", "Procedure", "Operation", "Surgery", "Treatment", "Management", "Operative Notes", or similar. Examples: "Phacoemulsification with Foldable IOL Implantation", "Laparoscopic Cholecystectomy", "Conservative Management with IV Antibiotics", "PTCA with Stenting". If multiple procedures, combine as comma-separated. Return null if not found.
+- icdCode1: The MOST SPECIFIC ICD-10-CM code for the primary diagnosis. This is the single most important field — extract directly from the document if printed, otherwise derive from the diagnosis text. Always go as specific as possible: include eye laterality (right/left/bilateral), type, and sub-type. Examples: "Nuclear cataract right eye" → "H25.11", "Nuclear cataract left eye" → "H25.12", "Appendicitis with abscess" → "K35.2", "Acute cholecystitis" → "K81.0", "Type 2 diabetes with diabetic cataract" → "E11.36". ALWAYS return a value — never return null. The system will automatically derive all 7 hierarchy levels (L1 broad category → L7 most specific) from this single code, so accuracy here is critical.
+- icdCode2: ICD-10 code for the secondary diagnosis or comorbidity if one is explicitly mentioned in the document (e.g. hypertension co-existing with cataract → "I10"). Return null if there is truly only one diagnosis.
+- icdCode3: ICD-10 code for a third condition or significant finding if present. Return null if not applicable.
+- presentingComplaint: A brief 1-2 sentence clinical summary of the patient's condition based on all information available in the document — diagnosis, symptoms, doctor notes, and clinical findings. This should read like a doctor's summary of why the patient was admitted. Example: "Patient presents with left eye cataract with diminution of vision for 1 month, admitted for cataract surgery with monofocal IOL implantation." Always return a value — synthesize from the document even if no explicit complaint section exists.
+- doctorNotes: Clinical notes, observations, or remarks written by the doctor — this includes both handwritten and printed doctor notes. Look for sections labeled "Doctor's Notes", "Clinical Notes", "Physician Remarks", "Observations", "Remarks", "Comments", "History", "Chief Complaints", "Clinical Summary", "Discharge Summary Notes", or similar. Include free-form clinical notes, observations, treatment remarks, and physician comments. DO NOT include the formal diagnosis (e.g. "Diagnosis: Cataract") or structured lab values — those belong in the diagnosis field. Combine all notes into a single string separated by double newlines (\\n\\n). If no doctor notes or clinical remarks are found anywhere in the document, leave this field empty.
+- doctorNotesPageNumber: The PDF page index (1-based) where the doctor's notes appear. ⚠️ CRITICAL PAGE NUMBER INSTRUCTIONS ⚠️:
+  * You must count pages from the BEGINNING of the PDF document (page 1 = first page, page 2 = second page, etc.)
+  * DO NOT use any page numbers printed on the document pages - these may be different from the actual PDF page index
+  * Find the page that contains the doctor's notes (look for sections labeled "Doctor's Notes", "Clinical Notes", "Remarks", "Observations", or similar)
+  * The pageNumber is the physical PDF page where the doctor's notes appear
+  * Scan through the PDF systematically from page 1 onwards until you find the doctor's notes
+  * Record the number of the page where the doctor's notes are located (e.g., if the doctor's notes appear on what is physically page 3 of the PDF, doctorNotesPageNumber = 3)
+  * If doctor's notes are not found or span multiple pages, use the first page where they appear
+- conditionTests: Supporting documents specific to claim type.
+${claimType === "maternity" ? `
+MATERNITY — Look for these supporting documents:
+- Ultrasound report: Look for gestational age, presentation (cephalic/breech), GPLA notation (e.g. G2P1L1A0)
+- Inpatient Initial Assessment form: Contains L value (living children) — CRITICAL for eligibility
+- Discharge summary: Confirms delivery type (Normal/C-Section/Twins), complications
+- Operation notes: For C-Section cases, procedure details
+
+For each document found, create one entry in conditionTests:
+- condition: Document type e.g. "Ultrasound Report", "Inpatient Assessment", "Discharge Summary"
+- matchedDiagnosis: e.g. "maternity", "normal delivery", "LSCS"
+- pageNumber: PDF page (1-based) where document found
+- testName: "GPLA" for ultrasound/assessment, "Delivery Type" for discharge summary
+- reportValue: extracted value e.g. "G2P1L1A0", "Normal Delivery", "C-Section"
+- numericValue: the L value as number if found (e.g. 1), else null
+- unit: "living children" if L value, else ""
+- status: "expected" if found, "missing" if not found
+- sourceText: short snippet from PDF confirming finding
+` : `
+CATARACT — Look for A-scan report data:
+- Axial Length (Axl.) measurements for both eyes (RE and LE)
+- K1 and K2 (corneal curvature) measurements
+- Anisometropia (Anis.) measurements
+- Sections labeled "Ascan", "A-scan", "Axial Length", or similar
+
+For Cataract (single entry):
+- condition: "Cataract (A-scan)"
+- matchedDiagnosis: exact diagnosis text (e.g. "cataract", "cataract surgery")
+- pageNumber: PDF page (1-based) where A-scan found
+- testName: "A-scan"
+- reportValue: "Yes" if found, "No" if not found
+- numericValue: null
+- unit: ""
+- status: "expected" if found, "missing" if not found
+- sourceText: short snippet from PDF where A-scan data found
+`}
+
+IMPORTANT:
+- Extract ALL diagnoses and combine as comma-separated string
+- Extract lineOfTreatment separately — it is the procedure performed, not the condition
+- Extract doctor notes broadly — clinical remarks, observations, physician comments only
+- Do NOT include formal diagnosis statements or structured lab values in doctorNotes
+- Be comprehensive in extracting all diagnoses and doctor notes
+- Return schema fields only; no explanations outside requested values
+- Return a SINGLE object with all diagnoses and notes combined
+\`;
 
 export const baseDocumentExtractionPrompt = `Extract the base document information from the entire hospital bill PDF:
 - For EVERY scalar field below, return an object in the shape { value, pageNumber }
