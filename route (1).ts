@@ -162,52 +162,55 @@ export async function POST(request: NextRequest) {
     );
   }
 
-  // ── 4. Return jobId immediately — process PDF in background ───────────────
-  // Use setImmediate to not block the response
-  const doProcess = async () => {
-    try {
-      const modelName = process.env.MODEL_NAME || "google/gemini-3-flash-preview";
-      const provider = process.env.MODEL_PROVIDER || "openrouter";
-      const providers = await fetchModels();
-      const claimType = (spectraFields?.claimType as string) ?? "cataract";
+  // ── 4. Process PDF synchronously then return jobId ──────────────────────────
+  // Cannot fire-and-forget in Next.js — serverless kills background tasks on response.
+  // maxDuration = 120 gives us 2 minutes to process before returning.
+  try {
+    // Mark job as processing
+    await convex.mutation(api.jobMutations.updateJobStatus, {
+      jobId,
+      status: "processing",
+    });
 
-      const { result } = await processSinglePdf({
-        fileName: medicalBill.name || "medical-bill.pdf",
-        pdfBuffer: hospitalBuffer,
-        modelName,
-        provider: (provider === "openai" ? "openai" : "openrouter") as "openai" | "openrouter",
-        providers,
-        claimType: claimType as "cataract" | "maternity" | "other",
-      });
+    const modelName = process.env.MODEL_NAME || "google/gemini-3-flash-preview";
+    const provider   = process.env.MODEL_PROVIDER || "openrouter";
+    const providers  = await fetchModels();
+    const claimType  = (spectraFields?.claimType as string) ?? "cataract";
 
-      // Save result to Convex
-      await convex.mutation(api.jobMutations.completeJobWithResult, {
-        jobId,
-        analysis: result,
-        status: "completed",
-        successCount: 1,
-        errorCount: 0,
-        totalCost: 0,
-        totalTokens: 0,
-        totalPromptTokens: 0,
-        totalCompletionTokens: 0,
-      });
-    } catch (err) {
-      console.error("[audit/start] Processing error:", err);
-      await convex.mutation(api.jobMutations.completeJobWithResult, {
-        jobId,
-        analysis: null,
-        status: "error",
-        successCount: 0,
-        errorCount: 1,
-        error: err instanceof Error ? err.message : String(err),
-      }).catch(() => {});
-    }
-  };
+    const { result, totals } = await processSinglePdf({
+      fileName: medicalBill.name || "medical-bill.pdf",
+      pdfBuffer: hospitalBuffer,
+      modelName,
+      provider: (provider === "openai" ? "openai" : "openrouter") as "openai" | "openrouter",
+      providers,
+      claimType: claimType as "cataract" | "maternity" | "other",
+    });
 
-  // Fire and forget — don't await
-  doProcess().catch(console.error);
+    // Save completed result to Convex
+    await convex.mutation(api.jobMutations.completeJobWithResult, {
+      jobId,
+      analysis: result,
+      status: "completed",
+      successCount: 1,
+      errorCount: 0,
+      totalCost:                totals.totalCost,
+      totalTokens:              totals.totalTokens,
+      totalPromptTokens:        totals.totalPromptTokens,
+      totalCompletionTokens:    totals.totalCompletionTokens,
+    });
+  } catch (err) {
+    console.error("[audit/start] Processing error:", err);
+    await convex.mutation(api.jobMutations.completeJobWithResult, {
+      jobId,
+      analysis: null,
+      status: "error",
+      successCount: 0,
+      errorCount: 1,
+      error: err instanceof Error ? err.message : String(err),
+    }).catch(() => {});
+  }
 
+  // Return jobId — UI polls Convex for real-time result updates
   return NextResponse.json(
     { success: true, jobId: jobId as string, claimId },
     { status: 200 },
