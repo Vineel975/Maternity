@@ -1,3 +1,6 @@
+Type '"openrouter" | "anthropic" | "google"' is not assignable to type 'ModelProvider'.
+  Type '"anthropic"' is not assignable to type 'ModelProvider'.
+
 SPECTRA_BASE_URL = https://spectra-app-qa-v9.fhpl.net
 
 STAGING_API_KEY = claimai-staging-key-2025
