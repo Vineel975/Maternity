@@ -1,3 +1,6 @@
+<img width="1239" height="601" alt="image" src="https://github.com/user-attachments/assets/acb69b99-1e87-4719-bd57-c6ff007ce56c" />
+
+
 Type '"openrouter" | "anthropic" | "google"' is not assignable to type 'ModelProvider'.
   Type '"anthropic"' is not assignable to type 'ModelProvider'.
 
