@@ -605,8 +605,12 @@ export const processPdfInternal = internalAction({
     if (!hospitalBlob) {
       throw new Error("Hospital file not found in storage");
     }
-    
     const hospitalBuffer = Buffer.from(await hospitalBlob.arrayBuffer());
+    const hospitalSizeMb = (hospitalBuffer.byteLength / 1024 / 1024).toFixed(2);
+    await ctx.runMutation(api.processing.addLog, {
+      jobId: args.jobId,
+      message: formatLogMessage(`[DEBUG] Hospital bill loaded: ${hospitalSizeMb} MB`),
+    });
 
     const modelName =
       process.env.MODEL_NAME || "google/gemini-3-flash-preview";
