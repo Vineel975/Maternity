@@ -25,7 +25,6 @@ import { ConvexHttpClient } from "convex/browser";
 import { api } from "@/convex/_generated/api";
 import type { Id } from "@/convex/_generated/dataModel";
 import { processSinglePdf } from "@/src/extract";
-import { getBenefitPlanTextByClaimId } from "@/src/db";
 import { fetchModels } from "@tokenlens/fetch";
 
 // Allow up to 2 minutes for large PDF uploads to Convex storage
@@ -170,19 +169,13 @@ export async function POST(request: NextRequest) {
       const modelName = process.env.MODEL_NAME || "google/gemini-3-flash-preview";
       const provider = process.env.MODEL_PROVIDER || "openrouter";
       const providers = await fetchModels();
-      const policyWordings = claimId
-        ? ((await getBenefitPlanTextByClaimId(claimId))?.trim() || "")
-        : "";
       const claimType = (spectraFields?.claimType as string) ?? "cataract";
-
-      // Get tariff catalog from Convex
-      const tariffCatalog = await convex.query(api.processing.getTariffPdfCatalog, {});
 
       const { result } = await processSinglePdf({
         fileName: medicalBill.name || "medical-bill.pdf",
         pdfBuffer: hospitalBuffer,
         modelName,
-        provider: provider as "openrouter" | "anthropic" | "google",
+        provider: (provider === "openai" ? "openai" : "openrouter") as "openai" | "openrouter",
         providers,
         claimType: claimType as "cataract" | "maternity" | "other",
       });
@@ -190,18 +183,24 @@ export async function POST(request: NextRequest) {
       // Save result to Convex
       await convex.mutation(api.jobMutations.completeJobWithResult, {
         jobId,
-        result: JSON.stringify(result),
+        analysis: result,
         status: "completed",
+        successCount: 1,
+        errorCount: 0,
+        totalCost: 0,
+        totalTokens: 0,
+        totalPromptTokens: 0,
+        totalCompletionTokens: 0,
       });
     } catch (err) {
       console.error("[audit/start] Processing error:", err);
-      await convex.mutation(api.jobMutations.updateJobStatus, {
+      await convex.mutation(api.jobMutations.completeJobWithResult, {
         jobId,
+        analysis: null,
         status: "error",
-        error: err instanceof Error ? err.message : String(err),
-        isComplete: true,
-        completed: 0,
+        successCount: 0,
         errorCount: 1,
+        error: err instanceof Error ? err.message : String(err),
       }).catch(() => {});
     }
   };
