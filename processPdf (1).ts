@@ -600,17 +600,17 @@ export const processPdfInternal = internalAction({
       }
     }
 
-    // Get storage URL and pass directly to AI — never load PDF into action memory
-    // This is the only way to handle large PDFs (50MB+) in Convex actions
+    // Get public Convex storage URL — pass to AI directly, no bytes loaded in action
+    // Convex storage URLs are public and non-expiring (no auth required)
     const hospitalUrl = await ctx.storage.getUrl(args.hospitalStorageId);
     if (!hospitalUrl) {
       throw new Error("Hospital file not found in storage");
     }
     await ctx.runMutation(api.processing.addLog, {
       jobId: args.jobId,
-      message: formatLogMessage(`[DEBUG] Hospital bill URL obtained — passing directly to AI`),
+      message: formatLogMessage(`[DEBUG] Hospital bill URL ready — AI will fetch directly`),
     });
-    // Use an empty buffer placeholder — actual PDF is fetched by AI via URL
+    // Empty buffer — pdfUrl is used instead, buffer never loaded into memory
     const hospitalBuffer = Buffer.alloc(0);
 
     const modelName =
@@ -655,7 +655,7 @@ export const processPdfInternal = internalAction({
       const { result, totals } = await processSinglePdf({
         fileName: args.fileName,
         pdfBuffer: hospitalBuffer,
-        pdfUrl: hospitalUrl,   // pass URL so AI can fetch directly if needed
+        pdfUrl: hospitalUrl,
         modelName,
         provider: provider as ModelProvider,
         providers,
