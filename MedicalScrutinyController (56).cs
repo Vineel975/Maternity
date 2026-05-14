@@ -8878,19 +8878,13 @@ namespace Enrollment.Controllers
                         return Json(res, JsonRequestBehavior.AllowGet);
                     }
 
-                    // Merge and compress — if still over 4MB, reduce page cap until it fits
-                    byte[] mergedLocal   = MergePdfs(pdfBytesList);
+                    // Merge and compress — send all pages, no page cap
+                    byte[] mergedLocal    = MergePdfs(pdfBytesList);
                     byte[] compressedLocal = CompressPdf(mergedLocal);
-                    int pageCap = 25;
-                    while (compressedLocal.Length > 4 * 1024 * 1024 && pageCap > 5)
-                    {
-                        pageCap -= 5;
-                        mergedLocal    = MergePdfsWithCap(pdfBytesList, pageCap);
-                        compressedLocal = CompressPdf(mergedLocal);
-                    }
                     double sizeMb = Math.Round(compressedLocal.Length / 1048576.0, 2);
+                    int pageCap = new iTextSharp.text.pdf.PdfReader(mergedLocal).NumberOfPages; // actual page count
                     res.Success = true;
-                    res.Message = "Medical bill loaded from zip. Files: " + pdfBytesList.Count + " | Pages capped: " + pageCap + " | Size: " + sizeMb + "MB";
+                    res.Message = "Medical bill loaded from zip. Files: " + pdfBytesList.Count + " | Pages: " + pageCap + " | Size: " + sizeMb + "MB";
                     res.Data    = new { fileName = cId + "-medicalbill.pdf", base64Content = Convert.ToBase64String(compressedLocal) };
                     var sl = new System.Web.Script.Serialization.JavaScriptSerializer { MaxJsonLength = int.MaxValue };
                     return Content(sl.Serialize(res), "application/json");
@@ -9365,11 +9359,11 @@ namespace Enrollment.Controllers
                     int totalPages = 0;
                     foreach (var pdfBytes in pdfList)
                     {
-                        if (totalPages >= maxPages) break;
+                        if (maxPages > 0 && totalPages >= maxPages) break;
                         var reader = new iTextSharp.text.pdf.PdfReader(pdfBytes);
                         for (int p = 1; p <= reader.NumberOfPages; p++)
                         {
-                            if (totalPages >= maxPages) break;
+                            if (maxPages > 0 && totalPages >= maxPages) break;
                             byte[] pageBytes = reader.GetPageContent(p);
                             string pageHash;
                             using (var md5 = System.Security.Cryptography.MD5.Create())
@@ -9401,15 +9395,12 @@ namespace Enrollment.Controllers
                     document.Open();
                     var seenPageHashes = new System.Collections.Generic.HashSet<string>();
                     int totalPages = 0;
-                    const int maxPages = 25; // cap at 25 pages to keep PDF under ~3MB for Convex
-
+                    // No page cap — process all pages
                     foreach (var pdfBytes in pdfList)
                     {
-                        if (totalPages >= maxPages) break;
                         var reader = new iTextSharp.text.pdf.PdfReader(pdfBytes);
                         for (int p = 1; p <= reader.NumberOfPages; p++)
                         {
-                            if (totalPages >= maxPages) break;
 
                             // Hash raw page content stream to detect duplicate pages
                             byte[] pageBytes = reader.GetPageContent(p);
