@@ -8878,28 +8878,14 @@ namespace Enrollment.Controllers
                         return Json(res, JsonRequestBehavior.AllowGet);
                     }
 
-                    // Merge and compress — cap at 30 pages to stay within Convex action memory limit (~200MB)
-                    // The AI model only needs billing summary pages, not all pages
+                    // Merge and compress all pages — no page cap
+                    // Large files are handled by passing URL to AI directly (not loading into Convex action memory)
                     byte[] mergedLocal    = MergePdfs(pdfBytesList);
                     byte[] compressedLocal = CompressPdf(mergedLocal);
                     int totalPages = new iTextSharp.text.pdf.PdfReader(mergedLocal).NumberOfPages;
-                    int pageCap = totalPages;
-                    // If compressed size > 8MB, reduce pages in steps of 5 until under limit or at 30 pages
-                    if (compressedLocal.Length > 8 * 1024 * 1024)
-                    {
-                        pageCap = Math.Min(totalPages, 30);
-                        mergedLocal    = MergePdfsWithCap(pdfBytesList, pageCap);
-                        compressedLocal = CompressPdf(mergedLocal);
-                        while (compressedLocal.Length > 8 * 1024 * 1024 && pageCap > 10)
-                        {
-                            pageCap -= 5;
-                            mergedLocal    = MergePdfsWithCap(pdfBytesList, pageCap);
-                            compressedLocal = CompressPdf(mergedLocal);
-                        }
-                    }
                     double sizeMb = Math.Round(compressedLocal.Length / 1048576.0, 2);
                     res.Success = true;
-                    res.Message = "Medical bill loaded from zip. Files: " + pdfBytesList.Count + " | Pages: " + pageCap + "/" + totalPages + " | Size: " + sizeMb + "MB";
+                    res.Message = "Medical bill loaded from zip. Files: " + pdfBytesList.Count + " | Pages: " + totalPages + " | Size: " + sizeMb + "MB";
                     res.Data    = new { fileName = cId + "-medicalbill.pdf", base64Content = Convert.ToBase64String(compressedLocal) };
                     var sl = new System.Web.Script.Serialization.JavaScriptSerializer { MaxJsonLength = int.MaxValue };
                     return Content(sl.Serialize(res), "application/json");
@@ -9338,6 +9324,8 @@ namespace Enrollment.Controllers
                 using (var output = new System.IO.MemoryStream())
                 {
                     var reader   = new iTextSharp.text.pdf.PdfReader(input);
+                    // Reduce image quality to compress scanned PDFs
+                    reader.RemoveUnusedObjects();
                     var document = new iTextSharp.text.Document();
                     var writer   = new iTextSharp.text.pdf.PdfCopy(document, output)
                     {
