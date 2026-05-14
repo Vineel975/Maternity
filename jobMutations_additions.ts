@@ -3,6 +3,11 @@
 
 // Creates a job record only — no Convex action scheduled.
 // PDF processing happens in the Next.js route (audit/start) directly.
+// ─── ADD THESE TWO MUTATIONS TO convex/jobMutations.ts ───────────────────────
+// Place them at the end of the file, before the closing
+
+// Creates a job record only — no Convex action scheduled.
+// PDF processing happens in the Next.js route (audit/start) directly.
 export const createJobAndProcess = mutation({
   args: {
     claimId: v.string(),
@@ -42,7 +47,7 @@ export const createJobAndProcess = mutation({
 export const completeJobWithResult = mutation({
   args: {
     jobId: v.id("processJob"),
-    analysis: v.any(),           // ExtractionResult object
+    analysis: v.union(v.any(), v.null()),  // ExtractionResult object or null on error
     status: v.string(),
     successCount: v.optional(v.number()),
     errorCount: v.optional(v.number()),
