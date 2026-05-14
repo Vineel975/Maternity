@@ -1,7 +1,7 @@
-// ─── ADD THESE TWO MUTATIONS TO convex/jobMutations.ts ───────────────────────
+// ═══════════════════════════════════════════════════════════════════════════════
+// ADD TO convex/jobMutations.ts — TWO mutations only (no query here)
+// ═══════════════════════════════════════════════════════════════════════════════
 
-// Creates a job with file records (for PDF viewer) but does NOT schedule
-// the Convex action. PDF processing happens in the Next.js route instead.
 export const createJobAndProcess = mutation({
   args: {
     claimId: v.string(),
@@ -27,7 +27,6 @@ export const createJobAndProcess = mutation({
       spectraFields: args.spectraFields,
     });
 
-    // Insert hospital bill file record (with storageId for PDF viewer)
     await ctx.db.insert("jobFiles", {
       jobId,
       file: args.hospitalFileName,
@@ -37,7 +36,6 @@ export const createJobAndProcess = mutation({
       fileType: "hospitalBill",
     });
 
-    // Insert tariff file record if provided
     if (args.tariffStorageId && args.tariffFileName) {
       await ctx.db.insert("jobFiles", {
         jobId,
@@ -49,13 +47,10 @@ export const createJobAndProcess = mutation({
       });
     }
 
-    // NOTE: No ctx.scheduler.runAfter() — processing is done in Next.js route
     return jobId;
   },
 });
 
-// Saves the AI processing result from Next.js route into Convex.
-// Inserts into jobResults table (same as addJobResult) so the UI reads it correctly.
 export const completeJobWithResult = mutation({
   args: {
     jobId: v.id("processJob"),
@@ -76,7 +71,6 @@ export const completeJobWithResult = mutation({
   handler: async (ctx, args) => {
     const { jobId, analysis, filePath, usage, processingTimeMs, cost, status, error, ...jobUpdates } = args;
 
-    // Save result in jobResults table — same as addJobResult so UI reads it
     if (analysis !== null && analysis !== undefined) {
       await ctx.db.insert("jobResults", {
         jobId,
@@ -89,7 +83,6 @@ export const completeJobWithResult = mutation({
       });
     }
 
-    // Update job status
     const patch: Record<string, any> = {
       status,
       isComplete: true,
@@ -104,34 +97,34 @@ export const completeJobWithResult = mutation({
     if (error !== undefined) patch.error = error;
 
     await ctx.db.patch(jobId, patch);
-
     return { success: true };
   },
 });
 
-// ─── ADD THESE TO convex/processing.ts (or wherever getJobById lives) ────────
 
-// Get job results for a given job
-export const getJobResults = query({
-  args: { jobId: v.id("processJob") },
-  handler: async (ctx, args) => {
-    return await ctx.db
-      .query("jobResults")
-      .withIndex("by_jobId", (q) => q.eq("jobId", args.jobId))
-      .collect();
-  },
-});
+// ═══════════════════════════════════════════════════════════════════════════════
+// ADD TO convex/processing.ts (where getJobById already lives)
+// ═══════════════════════════════════════════════════════════════════════════════
 
-// Update the analysis field of a specific jobResult (used by tariff matching)
-export const updateJobResultAnalysis = mutation({
-  args: {
-    jobResultId: v.id("jobResults"),
-    analysis: v.any(),
-  },
-  handler: async (ctx, args) => {
-    await ctx.db.patch(args.jobResultId, {
-      analysis: args.analysis,
-    });
-    return { success: true };
-  },
-});
+// --- paste these two functions into processing.ts ---
+
+// export const getJobResults = query({
+//   args: { jobId: v.id("processJob") },
+//   handler: async (ctx, args) => {
+//     return await ctx.db
+//       .query("jobResults")
+//       .withIndex("by_jobId", (q) => q.eq("jobId", args.jobId))
+//       .collect();
+//   },
+// });
+
+// export const updateJobResultAnalysis = mutation({
+//   args: {
+//     jobResultId: v.id("jobResults"),
+//     analysis: v.any(),
+//   },
+//   handler: async (ctx, args) => {
+//     await ctx.db.patch(args.jobResultId, { analysis: args.analysis });
+//     return { success: true };
+//   },
+// });
