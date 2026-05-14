@@ -1,11 +1,14 @@
 // ─── ADD THESE TWO MUTATIONS TO convex/jobMutations.ts ───────────────────────
 
-// Creates a job record only — no Convex action scheduled.
-// PDF processing happens in the Next.js route (audit/start) directly.
+// Creates a job with file records (for PDF viewer) but does NOT schedule
+// the Convex action. PDF processing happens in the Next.js route instead.
 export const createJobAndProcess = mutation({
   args: {
     claimId: v.string(),
+    hospitalStorageId: v.id("_storage"),
     hospitalFileName: v.string(),
+    tariffStorageId: v.optional(v.id("_storage")),
+    tariffFileName: v.optional(v.string()),
     spectraFields: v.optional(v.any()),
   },
   handler: async (ctx, args) => {
@@ -24,20 +27,35 @@ export const createJobAndProcess = mutation({
       spectraFields: args.spectraFields,
     });
 
+    // Insert hospital bill file record (with storageId for PDF viewer)
     await ctx.db.insert("jobFiles", {
       jobId,
       file: args.hospitalFileName,
       status: "pending",
+      storageId: args.hospitalStorageId,
       fileName: args.hospitalFileName,
       fileType: "hospitalBill",
     });
 
+    // Insert tariff file record if provided
+    if (args.tariffStorageId && args.tariffFileName) {
+      await ctx.db.insert("jobFiles", {
+        jobId,
+        file: args.tariffFileName,
+        status: "pending",
+        storageId: args.tariffStorageId,
+        fileName: args.tariffFileName,
+        fileType: "tariff",
+      });
+    }
+
+    // NOTE: No ctx.scheduler.runAfter() — processing is done in Next.js route
     return jobId;
   },
 });
 
 // Saves the AI processing result from Next.js route into Convex.
-// Uses addJobResult table (same as processPdfInternal) so the UI can read it.
+// Inserts into jobResults table (same as addJobResult) so the UI reads it correctly.
 export const completeJobWithResult = mutation({
   args: {
     jobId: v.id("processJob"),
@@ -58,7 +76,7 @@ export const completeJobWithResult = mutation({
   handler: async (ctx, args) => {
     const { jobId, analysis, filePath, usage, processingTimeMs, cost, status, error, ...jobUpdates } = args;
 
-    // Save result in jobResults table — same as addJobResult so UI reads it correctly
+    // Save result in jobResults table — same as addJobResult so UI reads it
     if (analysis !== null && analysis !== undefined) {
       await ctx.db.insert("jobResults", {
         jobId,
