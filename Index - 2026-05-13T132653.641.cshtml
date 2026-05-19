@@ -9493,7 +9493,11 @@
                         var isRight2 = /right/.test(procedureHint2);
                         var isLeft2  = /left/.test(procedureHint2);
 
-                        var procRules2 = [
+                        // Determine claim type for procedure matching
+                        var claimType2 = (window._claimAI_claimType || 'cataract').toLowerCase();
+
+                        // Cataract rules (left/right eye variants)
+                        var cataractRules = [
                             { kws: ['mics','micro incision'], l3r: 'MICS - Unifocal (Lens Included)-Right', l3l: 'MICS -Unifocal (Lens Included)-Left' },
                             { kws: ['multifocal'], l3r: 'MICS -Multifocal (Lens Included)-Right', l3l: 'MICS-Multifocal (Lens Included)-Left' },
                             { kws: ['toric'], l3r: 'Phaco with TORIC Lens(Any Lens)-Right', l3l: 'Phaco with TORIC Lens(Any Lens)-Left' },
@@ -9505,6 +9509,40 @@
                             { kws: ['lasik'], l3r: 'LASIK-Right', l3l: 'LASIK-Left' },
                             { kws: ['pterygium'], l3r: 'Pterygium- Right Eye', l3l: 'Pterygium-Left Eye' },
                         ];
+
+                        // Maternity rules — no left/right; uses delivery type keywords
+                        // l3r and l3l both set to same value (no laterality for maternity)
+                        // Order matters: MORE SPECIFIC rules FIRST so they win over generic ones
+                        // Covers all 12 TPA procedure IDs: 402, 403, 404, 405, 418, 419, 420, 421, 422, 1331, 1332, 1340
+                        var maternityRules = [
+                            // ─── Caesarean Section rules (specific → general) ─────────────────
+                            // ID 1332 — LSCS with well baby (explicit LSCS keyword)
+                            { kws: ['lscs with well baby','lscs well baby','lscs single with well baby'], l3r: 'LSCS with well baby care(single),Rs.10000/- extra for twins', l3l: 'LSCS with well baby care(single),Rs.10000/- extra for twins' },
+                            // ID 420 — Caesarean twins with well baby
+                            { kws: ['caesarean twins with well baby','c-section twins with well baby','lscs twins with well baby','caesarean delivery twins'], l3r: 'Caesarean Delivery twins with well baby care', l3l: 'Caesarean Delivery twins with well baby care' },
+                            // ID 419 — Caesarean delivery with well baby (single, NOT twins, NOT LSCS keyword)
+                            { kws: ['caesarean delivery with well baby','c-section with well baby','caesarean with well baby'], l3r: 'Caesarean Delivery with well baby care', l3l: 'Caesarean Delivery with well baby care' },
+                            // ID 421 — Caesarean Hysterectomy
+                            { kws: ['caesarean hysterectomy','c-section hysterectomy','lscs hysterectomy'], l3r: 'Caesarean Hysterectomy with bladder repair', l3l: 'Caesarean Hysterectomy with bladder repair' },
+                            // ID 422 — Complicated LSCS
+                            { kws: ['complicated lscs','complicated caesarean','complicated c-section'], l3r: 'Complicated LSCS', l3l: 'Complicated LSCS' },
+                            // ID 418 — Plain Caesarean (fallback for any C-section keyword)
+                            { kws: ['lscs','caesarean','c-section','c section','cesarean'], l3r: 'Caesarean section', l3l: 'Caesarean section' },
+
+                            // ─── Normal Delivery rules (specific → general) ────────────────────
+                            // ID 1340 — Epidural WITH well baby
+                            { kws: ['epidural with well baby','epidural delivery with well baby','epidural well baby'], l3r: 'Epidural delivery with well baby care(single/twins Rs.10000/- extra)', l3l: 'Epidural delivery with well baby care(single/twins Rs.10000/- extra)' },
+                            // ID 404 — Normal Vaginal Delivery with Epidural (no well baby)
+                            { kws: ['epidural anesthesia','vaginal delivery with epidural','normal vaginal delivery with epidural','epidural'], l3r: 'Normal Vaginal Delivery with Epidural Anesthesia', l3l: 'Normal Vaginal Delivery with Epidural Anesthesia' },
+                            // ID 1331 — Normal delivery with well baby
+                            { kws: ['normal delivery with well baby','normal with well baby','vaginal delivery with well baby','vaginal with well baby'], l3r: 'Normal delivery with well baby care(single) twins Rs.10000/- extra', l3l: 'Normal delivery with well baby care(single) twins Rs.10000/- extra' },
+                            // ID 405 — Twins / Multiple pregnancy
+                            { kws: ['vaginal delivery twins','normal delivery twins','twins','multiple pregnancy','twin delivery'], l3r: 'Normal Vaginal Delivery in Twins(Multiple pregnency)', l3l: 'Normal Vaginal Delivery in Twins(Multiple pregnency)' },
+                            // ID 402/403 — Plain Normal Delivery (fallback)
+                            { kws: ['normal vaginal delivery','vaginal delivery','normal delivery','spontaneous vaginal','svd'], l3r: 'Normal Delivery', l3l: 'Normal Delivery' },
+                        ];
+
+                        var procRules2 = (claimType2 === 'maternity') ? maternityRules : cataractRules;
 
                         var targetL3_2 = null;
                         for (var ri2 = 0; ri2 < procRules2.length; ri2++) {
